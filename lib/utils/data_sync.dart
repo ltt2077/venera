@@ -7,14 +7,15 @@ import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
-import 'package:venera/network/app_dio.dart';
+import 'package:venera/utils/cloud_storage/cloud_factory.dart';
+import 'package:venera/utils/cloud_storage/cloud_provider.dart';
 import 'package:venera/utils/data.dart';
 import 'package:venera/utils/ext.dart';
-import 'package:webdav_client/webdav_client.dart' hide File;
 import 'package:venera/utils/translations.dart';
 
 import 'io.dart';
 
+/// Cross-device sync via WebDAV / Alist / Quark (same `.venera` bundle).
 class DataSync with ChangeNotifier {
   DataSync._() {
     if (isEnabled) {
@@ -77,24 +78,11 @@ class DataSync with ChangeNotifier {
   String? get lastError => _lastError;
 
   bool get isEnabled {
-    var config = appdata.settings['webdav'];
-    var autoSync = appdata.implicitData['webdavAutoSync'] ?? false;
-    return autoSync && config is List && config.isNotEmpty;
+    if (!cloudAutoSyncEnabled()) return false;
+    return buildCloudProviderFromSettings() != null;
   }
 
-  List<String>? _validateConfig() {
-    var config = appdata.settings['webdav'];
-    if (config is! List) {
-      return null;
-    }
-    if (config.isEmpty) {
-      return [];
-    }
-    if (config.length != 3 || config.whereType<String>().length != 3) {
-      return null;
-    }
-    return List.from(config);
-  }
+  CloudStorageProvider? _providerOrNull() => buildCloudProviderFromSettings();
 
   Future<Res<bool>> uploadData() async {
     if (isDownloading) return const Res(true);
@@ -108,30 +96,16 @@ class DataSync with ChangeNotifier {
     _lastError = null;
     notifyListeners();
     try {
-      var config = _validateConfig();
-      if (config == null) {
-        _lastError = 'Invalid WebDAV configuration';
-        return const Res.error('Invalid WebDAV configuration');
+      final provider = _providerOrNull();
+      if (provider == null) {
+        _lastError = 'Cloud sync not configured';
+        return const Res.error('Cloud sync not configured');
       }
-      if (config.isEmpty) {
-        return const Res(true);
-      }
-      String url = config[0];
-      String user = config[1];
-      String pass = config[2];
-
-      var client = newClient(
-        url,
-        user: user,
-        password: pass,
-        adapter: RHttpAdapter(),
-      );
-
       try {
         appdata.settings['dataVersion']++;
         await appdata.saveData(false);
         var data = await exportAppData(
-            appdata.settings['disableSyncFields'].toString().isNotEmpty
+          appdata.settings['disableSyncFields'].toString().isNotEmpty,
         );
         var time =
             (DateTime.now().millisecondsSinceEpoch ~/ 86400000).toString();
@@ -139,19 +113,20 @@ class DataSync with ChangeNotifier {
         filename += '-';
         filename += appdata.settings['dataVersion'].toString();
         filename += '.venera';
-        var files = await client.readDir('/');
-        files = files.where((e) => e.name!.endsWith('.venera')).toList();
-        var old = files.firstWhereOrNull((e) => e.name!.startsWith("$time-"));
+
+        var files = await provider.listDataFiles();
+        files = files.where((e) => e.name.endsWith('.venera')).toList();
+        var old = files.firstWhereOrNull((e) => e.name.startsWith("$time-"));
         if (old != null) {
-          await client.remove(old.name!);
+          await provider.deleteFile(old.name);
         }
         if (files.length >= 10) {
-          files.sort((a, b) => a.name!.compareTo(b.name!));
-          await client.remove(files.first.name!);
+          files.sort((a, b) => a.name.compareTo(b.name));
+          await provider.deleteFile(files.first.name);
         }
-        await client.write(filename, await data.readAsBytes());
+        await provider.uploadFile(filename, await data.readAsBytes());
         data.deleteIgnoreError();
-        Log.info("Upload Data", "Data uploaded successfully");
+        Log.info("Upload Data", "Data uploaded via ${provider.id}");
         return const Res(true);
       } catch (e, s) {
         Log.error("Upload Data", e, s);
@@ -175,34 +150,20 @@ class DataSync with ChangeNotifier {
     _lastError = null;
     notifyListeners();
     try {
-      var config = _validateConfig();
-      if (config == null) {
-        _lastError = 'Invalid WebDAV configuration';
-        return const Res.error('Invalid WebDAV configuration');
+      final provider = _providerOrNull();
+      if (provider == null) {
+        _lastError = 'Cloud sync not configured';
+        return const Res.error('Cloud sync not configured');
       }
-      if (config.isEmpty) {
-        return const Res(true);
-      }
-      String url = config[0];
-      String user = config[1];
-      String pass = config[2];
-
-      var client = newClient(
-        url,
-        user: user,
-        password: pass,
-        adapter: RHttpAdapter(),
-      );
-
       try {
-        var files = await client.readDir('/');
-        files.sort((a, b) => b.name!.compareTo(a.name!));
-        var file = files.firstWhereOrNull((e) => e.name!.endsWith('.venera'));
+        var files = await provider.listDataFiles();
+        files.sort((a, b) => b.name.compareTo(a.name));
+        var file = files.firstWhereOrNull((e) => e.name.endsWith('.venera'));
         if (file == null) {
           throw 'No data file found';
         }
         var version =
-            file.name!.split('-').elementAtOrNull(1)?.split('.').first;
+            file.name.split('-').elementAtOrNull(1)?.split('.').first;
         if (version != null && int.tryParse(version) != null) {
           var currentVersion = appdata.settings['dataVersion'];
           if (currentVersion != null && int.parse(version) <= currentVersion) {
@@ -210,9 +171,10 @@ class DataSync with ChangeNotifier {
             return const Res(true);
           }
         }
-        Log.info("Data Sync", "Downloading data from WebDAV server");
-        var localFile = File(FilePath.join(App.cachePath, file.name!));
-        await client.read2File(file.name!, localFile.path);
+        Log.info("Data Sync", "Downloading via ${provider.id}");
+        var bytes = await provider.downloadFile(file.name);
+        var localFile = File(FilePath.join(App.cachePath, file.name));
+        await localFile.writeAsBytes(bytes);
         await importAppData(localFile, true);
         await localFile.delete();
         Log.info("Data Sync", "Data downloaded successfully");
@@ -225,6 +187,20 @@ class DataSync with ChangeNotifier {
     } finally {
       _isDownloading = false;
       notifyListeners();
+    }
+  }
+
+  Future<Res<bool>> testConnection() async {
+    try {
+      final provider = _providerOrNull();
+      if (provider == null) {
+        return const Res.error('Cloud sync not configured');
+      }
+      await provider.testConnection();
+      return const Res(true);
+    } catch (e, s) {
+      Log.error("Cloud Sync", e, s);
+      return Res.error(e.toString());
     }
   }
 }

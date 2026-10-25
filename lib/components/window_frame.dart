@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -113,47 +115,83 @@ class _WindowFrameState extends State<WindowFrame> {
                   brightness: useDarkTheme ? Brightness.dark : null,
                 ),
                 child: Builder(builder: (context) {
-                  return SizedBox(
+                  final glassOn = (appdata.settings['liquidGlass'] ?? true) == true;
+                  // macOS / Windows / Linux: acrylic title bar
+                  final dark = useDarkTheme ||
+                      Theme.of(context).brightness == Brightness.dark;
+                  final sigma = App.isMacOS
+                      ? 40.0
+                      : (App.isWindows || App.isLinux)
+                          ? 36.0
+                          : 24.0;
+                  final fill = Theme.of(context)
+                      .colorScheme
+                      .surface
+                      .withValues(alpha: glassOn ? (dark ? 0.48 : 0.58) : 0.92);
+                  Widget titleBar = SizedBox(
                     height: _kTitleBarHeight,
-                    child: Row(
-                      children: [
-                        if (App.isMacOS)
-                          const DragToMoveArea(
-                            child: SizedBox(
-                              height: double.infinity,
-                              width: 16,
-                            ),
-                          ).paddingRight(52)
-                        else
-                          const SizedBox(width: 12),
-                        Expanded(
-                          child: DragToMoveArea(
-                            child: Text(
-                              'Venera',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: (useDarkTheme ||
-                                        context.brightness == Brightness.dark)
-                                    ? Colors.white
-                                    : Colors.black,
-                              ),
-                            )
-                                .toAlign(Alignment.centerLeft)
-                                .paddingLeft(4 + (App.isMacOS ? 25 : 0)),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: fill,
+                        border: Border(
+                          bottom: BorderSide(
+                            color: dark
+                                ? Colors.white.withValues(alpha: 0.12)
+                                : Colors.black.withValues(alpha: 0.08),
+                            width: 0.6,
                           ),
                         ),
-                        if (kDebugMode)
-                          const TextButton(
-                            onPressed: debug,
-                            child: Text('Debug'),
+                      ),
+                      child: Row(
+                        children: [
+                          if (App.isMacOS)
+                            const DragToMoveArea(
+                              child: SizedBox(
+                                height: double.infinity,
+                                width: 16,
+                              ),
+                            ).paddingRight(52)
+                          else
+                            const SizedBox(width: 12),
+                          Expanded(
+                            child: DragToMoveArea(
+                              child: Text(
+                                'Venera',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: dark ? Colors.white : Colors.black,
+                                ),
+                              )
+                                  .toAlign(Alignment.centerLeft)
+                                  .paddingLeft(4 + (App.isMacOS ? 25 : 0)),
+                            ),
                           ),
-                        if (!App.isMacOS)
-                          _WindowButtons(
-                            onClose: _onClose,
-                          )
-                      ],
+                          if (kDebugMode)
+                            const TextButton(
+                              onPressed: debug,
+                              child: Text('Debug'),
+                            ),
+                          if (!App.isMacOS)
+                            _WindowButtons(
+                              onClose: _onClose,
+                            )
+                        ],
+                      ),
                     ),
                   );
+                  if (glassOn) {
+                    titleBar = ClipRect(
+                      child: BackdropFilter(
+                        filter: ui.ImageFilter.blur(
+                          sigmaX: sigma,
+                          sigmaY: sigma,
+                          tileMode: TileMode.mirror,
+                        ),
+                        child: titleBar,
+                      ),
+                    );
+                  }
+                  return titleBar;
                 }),
               ),
             ),

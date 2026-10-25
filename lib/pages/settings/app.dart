@@ -134,9 +134,10 @@ class _AppSettingsState extends State<AppSettings> {
           actionTitle: 'Import'.tl,
         ).toSliver(),
         _CallbackSetting(
-          title: "Data Sync".tl,
+          title: "Cloud Sync".tl,
+          subtitle: "WebDAV / Alist / Quark".tl,
           callback: () async {
-            showPopUpWidget(context, const _WebdavSetting());
+            showPopUpWidget(context, const _CloudSyncSetting());
           },
           actionTitle: 'Set'.tl,
         ).toSliver(),
@@ -342,147 +343,244 @@ class _LogsPageState extends State<LogsPage> {
   }
 }
 
-class _WebdavSetting extends StatefulWidget {
-  const _WebdavSetting();
+class _CloudSyncSetting extends StatefulWidget {
+  const _CloudSyncSetting();
 
   @override
-  State<_WebdavSetting> createState() => _WebdavSettingState();
+  State<_CloudSyncSetting> createState() => _CloudSyncSettingState();
 }
 
-class _WebdavSettingState extends State<_WebdavSetting> {
-  String url = "";
-  String user = "";
-  String pass = "";
-  String disableSync = "";
+class _CloudSyncSettingState extends State<_CloudSyncSetting> {
+  String provider = 'webdav';
+  String url = '';
+  String user = '';
+  String pass = '';
+  String path = '/';
+  String cookie = '';
+  String folderId = '0';
+  String disableSync = '';
 
-  bool autoSync = true;
-
+  bool autoSync = false;
   bool isTesting = false;
+  bool isBusy = false;
   bool upload = true;
 
   @override
   void initState() {
     super.initState();
-    if (appdata.settings['webdav'] is! List) {
-      appdata.settings['webdav'] = [];
+    provider = (appdata.settings['cloudProvider'] ?? 'webdav').toString();
+    final cfg = appdata.settings['cloudConfig'];
+    Map<String, dynamic> map = {};
+    if (cfg is Map) {
+      map = cfg.map((k, v) => MapEntry(k.toString(), v));
     }
-    if (appdata.settings['disableSyncFields'].trim().isNotEmpty) {
+    url = (map['url'] ?? '').toString();
+    user = (map['user'] ?? '').toString();
+    pass = (map['pass'] ?? '').toString();
+    path = (map['path'] ?? (provider == 'alist' ? '/venera' : '/')).toString();
+    cookie = (map['cookie'] ?? '').toString();
+    folderId = (map['folderId'] ?? '0').toString();
+
+    // Legacy WebDAV list
+    if (url.isEmpty && appdata.settings['webdav'] is List) {
+      final configs = appdata.settings['webdav'] as List;
+      if (configs.whereType<String>().length == 3) {
+        url = configs[0];
+        user = configs[1];
+        pass = configs[2];
+      }
+    }
+    if (appdata.settings['disableSyncFields'].toString().trim().isNotEmpty) {
       disableSync = appdata.settings['disableSyncFields'];
     }
-    var configs = appdata.settings['webdav'] as List;
-    if (configs.whereType<String>().length != 3) {
-      return;
-    }
-    url = configs[0];
-    user = configs[1];
-    pass = configs[2];
-    autoSync = appdata.implicitData['webdavAutoSync'] ?? true;
+    autoSync = appdata.implicitData['cloudAutoSync'] ??
+        appdata.implicitData['webdavAutoSync'] ??
+        false;
   }
 
-  void onAutoSyncChanged(bool value) {
-    setState(() {
-      autoSync = value;
-      appdata.implicitData['webdavAutoSync'] = value;
+  void _persistConfig({bool clear = false}) {
+    if (clear) {
+      appdata.settings['cloudProvider'] = 'webdav';
+      appdata.settings['cloudConfig'] = <String, dynamic>{};
+      appdata.settings['webdav'] = [];
+      appdata.implicitData['cloudAutoSync'] = false;
+      appdata.implicitData['webdavAutoSync'] = false;
       appdata.writeImplicitData();
-    });
+      appdata.saveData();
+      return;
+    }
+    appdata.settings['cloudProvider'] = provider;
+    final cfg = <String, dynamic>{
+      'url': url.trim(),
+      'user': user,
+      'pass': pass,
+      'path': path.trim().isEmpty ? '/' : path.trim(),
+      'cookie': cookie,
+      'folderId': folderId.trim().isEmpty ? '0' : folderId.trim(),
+    };
+    appdata.settings['cloudConfig'] = cfg;
+    appdata.settings['disableSyncFields'] = disableSync;
+    // Keep legacy webdav in sync when provider is webdav (other code paths).
+    if (provider == 'webdav' && url.trim().isNotEmpty) {
+      appdata.settings['webdav'] = [url.trim(), user, pass];
+    }
+    appdata.implicitData['cloudAutoSync'] = autoSync;
+    appdata.implicitData['webdavAutoSync'] = autoSync;
+    appdata.writeImplicitData();
   }
 
   @override
   Widget build(BuildContext context) {
     return PopUpWidgetScaffold(
-      title: "Webdav",
+      title: "Cloud Sync".tl,
       body: SingleChildScrollView(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 12),
-            TextField(
-              decoration: InputDecoration(
-                labelText: "URL",
-                hintText: "A valid WebDav directory URL".tl,
-                border: OutlineInputBorder(),
-              ),
-              controller: TextEditingController(text: url),
-              onChanged: (value) => url = value,
+            Text("Provider".tl, style: ts.s14),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final e in [
+                  ('webdav', 'WebDAV'),
+                  ('alist', 'Alist / OpenList'),
+                  ('quark', 'Quark'),
+                ])
+                  ChoiceChip(
+                    label: Text(e.$2),
+                    selected: provider == e.$1,
+                    onSelected: (_) => setState(() {
+                      provider = e.$1;
+                      if (provider == 'alist' &&
+                          (path.isEmpty || path == '/')) {
+                        path = '/venera';
+                      }
+                    }),
+                  ),
+              ],
             ),
             const SizedBox(height: 12),
-            TextField(
-              decoration: InputDecoration(
-                labelText: "Username".tl,
-                border: const OutlineInputBorder(),
+            if (provider == 'webdav' || provider == 'alist') ...[
+              TextField(
+                decoration: InputDecoration(
+                  labelText: provider == 'alist'
+                      ? "Alist URL".tl
+                      : "URL",
+                  hintText: provider == 'alist'
+                      ? "https://alist.example.com"
+                      : "A valid WebDav directory URL".tl,
+                  border: const OutlineInputBorder(),
+                ),
+                controller: TextEditingController(text: url),
+                onChanged: (v) => url = v,
               ),
-              controller: TextEditingController(text: user),
-              onChanged: (value) => user = value,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              decoration: InputDecoration(
-                labelText: "Password".tl,
-                border: const OutlineInputBorder(),
+              const SizedBox(height: 12),
+              TextField(
+                decoration: InputDecoration(
+                  labelText: "Username".tl,
+                  border: const OutlineInputBorder(),
+                ),
+                controller: TextEditingController(text: user),
+                onChanged: (v) => user = v,
               ),
-              controller: TextEditingController(text: pass),
-              onChanged: (value) => pass = value,
-            ),
+              const SizedBox(height: 12),
+              TextField(
+                decoration: InputDecoration(
+                  labelText: "Password".tl,
+                  border: const OutlineInputBorder(),
+                ),
+                obscureText: true,
+                controller: TextEditingController(text: pass),
+                onChanged: (v) => pass = v,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                decoration: InputDecoration(
+                  labelText: "Remote Folder".tl,
+                  hintText: provider == 'alist' ? "/venera" : "/",
+                  border: const OutlineInputBorder(),
+                ),
+                controller: TextEditingController(text: path),
+                onChanged: (v) => path = v,
+              ),
+              if (provider == 'webdav')
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    "Tip: Alist WebDAV endpoint also works here.".tl,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              if (provider == 'alist')
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    "Mount Baidu / 123 / Aliyun / Quark in Alist, then sync to that path.".tl,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
+            if (provider == 'quark') ...[
+              TextField(
+                decoration: InputDecoration(
+                  labelText: "Cookie".tl,
+                  hintText: "Paste Cookie from pan.quark.cn".tl,
+                  border: const OutlineInputBorder(),
+                ),
+                maxLines: 3,
+                controller: TextEditingController(text: cookie),
+                onChanged: (v) => cookie = v,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                decoration: InputDecoration(
+                  labelText: "Folder FID".tl,
+                  hintText: "0 = root",
+                  border: const OutlineInputBorder(),
+                ),
+                controller: TextEditingController(text: folderId),
+                onChanged: (v) => folderId = v,
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  "Quark uses an unofficial web API; cookies expire. Prefer Alist mount when possible.".tl,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             TextField(
               decoration: InputDecoration(
                 labelText: "Skip Setting Fields (Optional)".tl,
                 hintText: "field0, field1, field2, ...",
                 hintStyle: TextStyle(color: Theme.of(context).hintColor),
-                border: OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  icon: Icon(Icons.help_outline),
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: Text("Skip Setting Fields".tl),
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "When sync data, skip certain setting fields, which means these won't be uploaded / override.".tl,
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    "See source code for available fields.".tl,
-                                  ),
-                                ),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: IconButton(
-                                    icon: const Icon(Icons.open_in_new),
-                                    onPressed: () {
-                                      launchUrlString("https://github.com/venera-app/venera/blob/b08f11f6ac49bd07d34b4fcde233ed07e86efbc9/lib/foundation/appdata.dart#L138");
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                border: const OutlineInputBorder(),
               ),
               controller: TextEditingController(text: disableSync),
-              onChanged: (value) => disableSync = value,
+              onChanged: (v) => disableSync = v,
             ),
             const SizedBox(height: 12),
             ListTile(
-              leading: Icon(Icons.sync),
+              leading: const Icon(Icons.sync),
               title: Text("Auto Sync Data".tl),
               contentPadding: EdgeInsets.zero,
               trailing: Switch(
                 value: autoSync,
-                onChanged: onAutoSyncChanged,
+                onChanged: (v) => setState(() => autoSync = v),
               ),
             ),
-            const SizedBox(height: 12),
             RadioGroup<bool>(
               groupValue: upload,
               onChanged: (value) {
@@ -493,18 +591,14 @@ class _WebdavSettingState extends State<_WebdavSetting> {
               child: Row(
                 children: [
                   Text("Operation".tl),
-                  Radio<bool>(
-                    value: true,
-                  ),
+                  const Radio<bool>(value: true),
                   Text("Upload".tl),
-                  Radio<bool>(
-                    value: false,
-                  ),
+                  const Radio<bool>(value: false),
                   Text("Download".tl),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             AnimatedSize(
               duration: const Duration(milliseconds: 200),
               child: autoSync
@@ -520,8 +614,9 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                                "Once the operation is successful, app will automatically sync data with the server."
-                                    .tl),
+                              "Once the operation is successful, app will automatically sync data with the server."
+                                  .tl,
+                            ),
                           ),
                         ],
                       ),
@@ -529,62 +624,69 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                   : const SizedBox.shrink(),
             ),
             const SizedBox(height: 16),
-            Center(
-              child: Button.filled(
-                isLoading: isTesting,
-                onPressed: () async {
-                  var oldConfig = appdata.settings['webdav'];
-                  var oldAutoSync = appdata.implicitData['webdavAutoSync'];
-
-                  if (url.trim().isEmpty &&
-                      user.trim().isEmpty &&
-                      pass.trim().isEmpty) {
-                    appdata.settings['webdav'] = [];
-                    appdata.implicitData['webdavAutoSync'] = false;
-                    appdata.writeImplicitData();
-                    appdata.saveData();
-                    context.showMessage(message: "Saved".tl);
-                    App.rootPop();
-                    return;
-                  }
-
-                  appdata.settings['webdav'] = [url, user, pass];
-                  appdata.settings['disableSyncFields'] = disableSync;
-                  appdata.implicitData['webdavAutoSync'] = autoSync;
-                  appdata.writeImplicitData();
-
-                  if (!autoSync) {
-                    appdata.saveData();
-                    context.showMessage(message: "Saved".tl);
-                    App.rootPop();
-                    return;
-                  }
-
-                  setState(() {
-                    isTesting = true;
-                  });
-                  var testResult = upload
-                      ? await DataSync().uploadData()
-                      : await DataSync().downloadData();
-                  if (testResult.error) {
-                    setState(() {
-                      isTesting = false;
-                    });
-                    appdata.settings['webdav'] = oldConfig;
-                    appdata.implicitData['webdavAutoSync'] = oldAutoSync;
-                    appdata.writeImplicitData();
-                    appdata.saveData();
-                    context.showMessage(message: testResult.errorMessage!);
-                    context.showMessage(message: "Saved Failed".tl);
-                  } else {
-                    appdata.saveData();
-                    context.showMessage(message: "Saved".tl);
-                    App.rootPop();
-                  }
-                },
-                child: Text("Continue".tl),
-              ),
-            )
+            Row(
+              children: [
+                Expanded(
+                  child: Button.outlined(
+                    isLoading: isTesting,
+                    onPressed: () async {
+                      _persistConfig();
+                      setState(() => isTesting = true);
+                      final res = await DataSync().testConnection();
+                      setState(() => isTesting = false);
+                      if (res.error) {
+                        context.showMessage(message: res.errorMessage!);
+                      } else {
+                        context.showMessage(message: "Connection OK".tl);
+                      }
+                    },
+                    child: Text("Test".tl),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Button.filled(
+                    isLoading: isBusy,
+                    onPressed: () async {
+                      final empty = provider == 'quark'
+                          ? cookie.trim().isEmpty
+                          : url.trim().isEmpty;
+                      if (empty &&
+                          user.trim().isEmpty &&
+                          pass.trim().isEmpty &&
+                          cookie.trim().isEmpty) {
+                        _persistConfig(clear: true);
+                        context.showMessage(message: "Saved".tl);
+                        App.rootPop();
+                        return;
+                      }
+                      _persistConfig();
+                      if (!autoSync) {
+                        appdata.saveData();
+                        context.showMessage(message: "Saved".tl);
+                        App.rootPop();
+                        return;
+                      }
+                      setState(() => isBusy = true);
+                      final testResult = upload
+                          ? await DataSync().uploadData()
+                          : await DataSync().downloadData();
+                      setState(() => isBusy = false);
+                      if (testResult.error) {
+                        context.showMessage(message: testResult.errorMessage!);
+                        context.showMessage(message: "Saved Failed".tl);
+                      } else {
+                        appdata.saveData();
+                        context.showMessage(message: "Saved".tl);
+                        App.rootPop();
+                      }
+                    },
+                    child: Text("Continue".tl),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
           ],
         ).paddingHorizontal(16),
       ),

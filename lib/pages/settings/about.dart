@@ -41,6 +41,13 @@ class _AboutSettingsState extends State<AboutSettings> {
               style: const TextStyle(fontSize: 16),
             ),
             Text("Venera is a free and open-source app for comic reading.".tl),
+            Text(
+              "Venera Glass fork · liquid glass + cloud sync".tl,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
             const SizedBox(height: 8),
           ],
         ).toSliver(),

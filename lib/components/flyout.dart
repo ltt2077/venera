@@ -179,23 +179,28 @@ class FlyoutContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final glassOn = Glass.shouldBlur(context);
     return IntrinsicWidth(
       child: BlurEffect(
-        borderRadius: BorderRadius.circular(8),
+        blur: glassOn ? Glass.blurSigma(context) : 15,
+        borderRadius: BorderRadius.circular(glassOn ? 14 : 8),
         child: Material(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(glassOn ? 14 : 8),
           type: MaterialType.card,
-          color: context.colorScheme.surface.toOpacity(0.82),
+          color: context.colorScheme.surface.toOpacity(
+            glassOn ? Glass.fillOpacity(context) : 0.82,
+          ),
           child: Container(
             constraints: const BoxConstraints(
               minWidth: minFlyoutWidth,
             ),
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: context.brightness == ui.Brightness.dark
-                  ? Border.all(color: context.colorScheme.outlineVariant)
-                  : null,
+              borderRadius: BorderRadius.circular(glassOn ? 14 : 8),
+              border: Glass.highlightBorder(context) ??
+                  (context.brightness == ui.Brightness.dark
+                      ? Border.all(color: context.colorScheme.outlineVariant)
+                      : null),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,

@@ -77,10 +77,23 @@ class _AppbarState extends State<Appbar> {
 
   @override
   Widget build(BuildContext context) {
+    final glassOn = Glass.shouldBlur(context);
     var content = Container(
       decoration: BoxDecoration(
         color: widget.backgroundColor ??
-            context.colorScheme.surface.toOpacity(0.86),
+            context.colorScheme.surface.toOpacity(
+              glassOn ? Glass.fillOpacity(context) : 0.86,
+            ),
+        border: glassOn
+            ? Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? Colors.white.toOpacity(0.12)
+                      : Colors.white.toOpacity(0.4),
+                  width: 0.5,
+                ),
+              )
+            : null,
       ),
       height: _kAppBarHeight + context.padding.top,
       child: Row(
@@ -119,8 +132,11 @@ class _AppbarState extends State<Appbar> {
         child: content,
       );
     } else {
+      final sigma = Glass.shouldBlur(context)
+          ? (_scrolledUnder ? Glass.blurSigma(context) : Glass.blurSigma(context) * 0.55)
+          : (_scrolledUnder ? 15.0 : 0.0);
       return BlurEffect(
-        blur: _scrolledUnder ? 15 : 0,
+        blur: sigma,
         child: content,
       );
     }
@@ -227,11 +243,14 @@ class _MySliverAppBarDelegate extends SliverPersistentHeaderDelegate {
     ).paddingTop(topPadding);
 
     if (style == AppbarStyle.blur) {
+      final glassOn = Glass.shouldBlur(context);
       return SizedBox.expand(
         child: BlurEffect(
-          blur: 15,
+          blur: glassOn ? Glass.blurSigma(context) : 15,
           child: Material(
-            color: context.colorScheme.surface.toOpacity(0.86),
+            color: context.colorScheme.surface.toOpacity(
+              glassOn ? Glass.fillOpacity(context) : 0.86,
+            ),
             elevation: 0,
             borderRadius: BorderRadius.circular(radius),
             child: body,

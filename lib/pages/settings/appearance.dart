@@ -42,6 +42,14 @@ class _AppearanceSettingsState extends State<AppearanceSettings> {
             App.forceRebuild();
           },
         ).toSliver(),
+        _SwitchSetting(
+          title: "Liquid Glass".tl,
+          subtitle: "Frosted translucent chrome (iOS / Android / macOS / Windows / Linux)".tl,
+          settingKey: "liquidGlass",
+          onChanged: () {
+            App.forceRebuild();
+          },
+        ).toSliver(),
       ],
     );
   }

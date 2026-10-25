@@ -172,14 +172,18 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
         context.reader.chapter - 1,
       );
 
+    final glassOn = Glass.shouldBlur(context);
     return BlurEffect(
+      blur: glassOn ? Glass.blurSigma(context) : 15,
       child: Container(
         padding: EdgeInsets.only(top: context.padding.top),
         decoration: BoxDecoration(
-          color: context.colorScheme.surface.toOpacity(0.92),
+          color: context.colorScheme.surface.toOpacity(
+            glassOn ? Glass.fillOpacity(context) : 0.92,
+          ),
           border: Border(
             bottom: BorderSide(
-              color: Colors.grey.toOpacity(0.5),
+              color: Colors.grey.toOpacity(glassOn ? 0.35 : 0.5),
               width: 0.5,
             ),
           ),
@@ -552,14 +556,18 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
       ),
     );
 
+    final glassOn = Glass.shouldBlur(context);
     return BlurEffect(
+      blur: glassOn ? Glass.blurSigma(context) : 15,
       child: Container(
         decoration: BoxDecoration(
-          color: context.colorScheme.surface.toOpacity(0.92),
+          color: context.colorScheme.surface.toOpacity(
+            glassOn ? Glass.fillOpacity(context) : 0.92,
+          ),
           border: isOpen
               ? Border(
                   top: BorderSide(
-                    color: Colors.grey.toOpacity(0.5),
+                    color: Colors.grey.toOpacity(glassOn ? 0.35 : 0.5),
                     width: 0.5,
                   ),
                 )

@@ -264,11 +264,23 @@ class NaviPaneState extends State<NaviPane>
   }
 
   Widget buildTop() {
-    return Material(
-      child: Container(
+    final glassOn = Glass.shouldBlur(context);
+    Widget bar = Container(
         padding: const EdgeInsets.only(left: 16, right: 16),
         height: _kTopBarHeight,
         width: double.infinity,
+        decoration: glassOn
+            ? BoxDecoration(
+                color: Glass.fillColor(context),
+                border: Border(
+                  bottom: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant
+                        .toOpacity(0.45),
+                    width: 0.6,
+                  ),
+                ),
+              )
+            : null,
         child: Row(
           children: [
             Text(
@@ -286,21 +298,24 @@ class NaviPaneState extends State<NaviPane>
               ),
           ],
         ),
-      ),
     );
+    if (glassOn) {
+      return BlurEffect(blur: Glass.blurSigma(context), child: bar);
+    }
+    return Material(child: bar);
   }
 
   Widget buildBottom() {
-    return Material(
-      textStyle: Theme.of(context).textTheme.labelSmall,
-      elevation: 0,
-      child: Container(
+    final glassOn = Glass.shouldBlur(context);
+    Widget bar = Container(
         height: _kBottomBarHeight,
         decoration: BoxDecoration(
+          color: glassOn ? Glass.fillColor(context) : null,
           border: Border(
             top: BorderSide(
-              color: Theme.of(context).colorScheme.outlineVariant,
-              width: 1,
+              color: Theme.of(context).colorScheme.outlineVariant
+                  .toOpacity(glassOn ? 0.45 : 1),
+              width: glassOn ? 0.6 : 1,
             ),
           ),
         ),
@@ -318,25 +333,39 @@ class NaviPaneState extends State<NaviPane>
             );
           }),
         ),
-      ),
+    );
+    if (glassOn) {
+      return Material(
+        textStyle: Theme.of(context).textTheme.labelSmall,
+        elevation: 0,
+        color: Colors.transparent,
+        child: BlurEffect(blur: Glass.blurSigma(context), child: bar),
+      );
+    }
+    return Material(
+      textStyle: Theme.of(context).textTheme.labelSmall,
+      elevation: 0,
+      child: bar,
     );
   }
 
   Widget buildLeft() {
     final value = controller.value;
     const paddingHorizontal = 12.0;
-    return Material(
-      child: Container(
+    final glassOn = Glass.shouldBlur(context);
+    Widget side = Container(
         width:
             _kFoldedSideBarWidth +
             (_kSideBarWidth - _kFoldedSideBarWidth) * ((value - 2).clamp(0, 1)),
         height: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: paddingHorizontal),
         decoration: BoxDecoration(
+          color: glassOn ? Glass.fillColor(context) : null,
           border: Border(
             right: BorderSide(
-              color: Theme.of(context).colorScheme.outlineVariant,
-              width: 1.0,
+              color: Theme.of(context).colorScheme.outlineVariant
+                  .toOpacity(glassOn ? 0.45 : 1),
+              width: glassOn ? 0.6 : 1.0,
             ),
           ),
         ),
@@ -368,8 +397,12 @@ class NaviPaneState extends State<NaviPane>
             const SizedBox(height: 16),
           ],
         ),
-      ),
     );
+    if (glassOn) {
+      // Desktop (esp. macOS) acrylic sidebar
+      return BlurEffect(blur: Glass.blurSigma(context), child: side);
+    }
+    return Material(child: side);
   }
 }
 
