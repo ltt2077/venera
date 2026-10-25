@@ -43,3 +43,17 @@ Actions: **Test** connection, manual Upload/Download, Auto Sync toggle (mirrors 
 - Quark upload/download depends on unofficial endpoints and may break without notice.
 - Direct Baidu / 123 / Aliyun APIs are intentionally routed through Alist rather than brittle reverse-engineered clients.
 - No Windows binary in this Linux build environment (code still targets desktop).
+
+## macOS build (Mac host required)
+
+This Linux box cannot emit a `.app` / `.dmg` (`flutter build` has no `macos` subcommand here).
+On a Mac with Xcode:
+
+```bash
+git clone https://github.com/ltt2077/venera.git -b glass-cloud
+cd venera
+flutter pub get
+flutter build macos
+```
+
+Liquid glass for macOS (acrylic title bar + sidebar) is already in the `glass-cloud` branch.
