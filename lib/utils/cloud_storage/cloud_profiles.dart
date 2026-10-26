@@ -243,7 +243,7 @@ class CloudProfileStore {
     final n = load().length + 1;
     return CloudProfile(
       id: newProfileId(),
-      name: 'Profile $n',
+      name: '配置 $n',
       provider: provider,
       config: {
         'url': '',

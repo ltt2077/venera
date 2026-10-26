@@ -6,7 +6,7 @@ class PopUpWidget<T> extends PopupRoute<T> {
   final Widget widget;
 
   @override
-  Color? get barrierColor => Colors.black54;
+  Color? get barrierColor => Colors.black38;
 
   @override
   bool get barrierDismissible => true;
@@ -15,35 +15,41 @@ class PopUpWidget<T> extends PopupRoute<T> {
   String? get barrierLabel => "exit";
 
   @override
+  bool get opaque => false;
+
+  @override
   Widget buildPage(BuildContext context, Animation<double> animation,
       Animation<double> secondaryAnimation) {
     var height = MediaQuery.of(context).size.height * 0.9;
     bool showPopUp = MediaQuery.of(context).size.width > 500;
     final glassOn = Glass.shouldBlur(context);
+    // Nested navigator for sub-pages inside the sheet. Keep routes OPAQUE so
+    // popping the only page cannot leave a blank glass hole (white screen).
     Widget page = Navigator(
       onGenerateRoute: (settings) => PageRouteBuilder(
         settings: settings,
-        opaque: !glassOn,
-        pageBuilder: (context, animation, secondaryAnimation) => widget,
+        opaque: true,
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            _PopUpPageBackground(glassOn: glassOn, child: widget),
       ),
     );
     Widget sheet = Container(
       decoration: showPopUp
           ? BoxDecoration(
-              borderRadius: const BorderRadius.all(Radius.circular(12)),
+              borderRadius: const BorderRadius.all(Radius.circular(16)),
               boxShadow: context.brightness == ui.Brightness.dark
                   ? [
                       BoxShadow(
-                        color: Colors.white.withAlpha(50),
+                        color: Colors.white.withAlpha(40),
                         blurRadius: 10,
                         offset: const Offset(0, 2),
                       ),
                     ]
                   : [
                       BoxShadow(
-                        color: Colors.black.toOpacity(0.12),
-                        blurRadius: 24,
-                        offset: const Offset(0, 8),
+                        color: Colors.black.toOpacity(0.14),
+                        blurRadius: 28,
+                        offset: const Offset(0, 10),
                       ),
                     ],
             )
@@ -54,13 +60,16 @@ class PopUpWidget<T> extends PopupRoute<T> {
       child: glassOn
           ? GlassSurface(
               borderRadius: showPopUp
-                  ? const BorderRadius.all(Radius.circular(12))
+                  ? const BorderRadius.all(Radius.circular(16))
                   : BorderRadius.zero,
               elevationShadow: false,
-              opacity: App.isAndroid ? 0.55 : null,
+              showMesh: true,
               child: page,
             )
-          : Material(child: page),
+          : Material(
+              color: Theme.of(context).colorScheme.surface,
+              child: page,
+            ),
     );
     Widget body = PopupIndicatorWidget(child: sheet);
     if (App.isIOS) {
@@ -99,6 +108,24 @@ class PopUpWidget<T> extends PopupRoute<T> {
   }
 }
 
+/// Ensures nested navigator pages paint a coherent theme-aware surface so a
+/// mistaken inner pop does not flash pure white / black.
+class _PopUpPageBackground extends StatelessWidget {
+  const _PopUpPageBackground({required this.glassOn, required this.child});
+
+  final bool glassOn;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ColoredBox(
+      color: glassOn ? Colors.transparent : scheme.surface,
+      child: child,
+    );
+  }
+}
+
 class PopupIndicatorWidget extends InheritedWidget {
   const PopupIndicatorWidget({super.key, required super.child});
 
@@ -113,6 +140,21 @@ class PopupIndicatorWidget extends InheritedWidget {
 Future<T> showPopUpWidget<T>(BuildContext context, Widget widget) async {
   return await Navigator.of(context, rootNavigator: true)
       .push(PopUpWidget(widget));
+}
+
+/// Pop the enclosing [PopUpWidget] route (root navigator), returning [result].
+/// Prefer this over [BuildContext.pop] inside pop-up pages — the sheet hosts a
+/// nested [Navigator] whose only route must not be popped (that caused the
+/// Cloud Sync "Save → white screen" bug).
+void popPopUp<T>(BuildContext context, [T? result]) {
+  final nav = Navigator.of(context, rootNavigator: true);
+  if (nav.canPop()) {
+    nav.pop(result);
+    return;
+  }
+  if (context.mounted && Navigator.of(context).canPop()) {
+    Navigator.of(context).pop(result);
+  }
 }
 
 class PopUpWidgetScaffold extends StatefulWidget {
@@ -133,99 +175,88 @@ class _PopUpWidgetScaffoldState extends State<PopUpWidgetScaffold> {
   @override
   Widget build(BuildContext context) {
     final glassOn = Glass.shouldBlur(context);
+    final scheme = Theme.of(context).colorScheme;
     final header = Container(
-            height: 56 + context.padding.top,
-            padding: EdgeInsets.only(top: context.padding.top),
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: glassOn
-                  ? Glass.fillColor(context)
-                  : (top
-                      ? null
-                      : Theme.of(context).colorScheme.surfaceTint.withAlpha(20)),
-              border: glassOn
-                  ? Border(
-                      bottom: BorderSide(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .outlineVariant
-                            .toOpacity(0.4),
-                        width: 0.6,
-                      ),
-                    )
-                  : null,
-            ),
-            child: Row(
-              children: [
-                const SizedBox(
-                  width: 8,
-                ),
-                Tooltip(
-                  message: "Back".tl,
-                  child: IconButton(
-                    icon: const Icon(Icons.arrow_back_sharp),
-                    onPressed: () =>
-                        context.canPop() ? context.pop() : App.pop(),
-                  ),
-                ),
-                const SizedBox(
-                  width: 16,
-                ),
-                Text(
-                  widget.title,
-                  style: const TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.w500),
-                ),
-                const Spacer(),
-                if (widget.tailing != null) ...widget.tailing!,
-                const SizedBox(width: 8),
-              ],
-            ),
-          );
-    final column = Column(
+      height: 56 + context.padding.top,
+      padding: EdgeInsets.only(top: context.padding.top),
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: glassOn
+            ? Colors.transparent
+            : (top ? null : scheme.surfaceTint.withAlpha(20)),
+        border: Border(
+          bottom: BorderSide(
+            color: scheme.outlineVariant.toOpacity(glassOn ? 0.35 : 0.2),
+            width: 0.6,
+          ),
+        ),
+      ),
+      child: Row(
         children: [
-          glassOn
-              ? BlurEffect(blur: Glass.blurSigma(context), child: header)
-              : header,
-          NotificationListener<ScrollNotification>(
-            onNotification: (notifications) {
-              if (notifications.metrics.axisDirection != AxisDirection.down) {
-                return false;
-              }
-              if (notifications.metrics.pixels ==
-                      notifications.metrics.minScrollExtent &&
-                  !top) {
-                setState(() {
-                  top = true;
-                });
-              } else if (notifications.metrics.pixels !=
-                      notifications.metrics.minScrollExtent &&
-                  top) {
-                setState(() {
-                  top = false;
-                });
-              }
-              return false;
-            },
-            child: MediaQuery.removePadding(
-              removeTop: true,
-              context: context,
-              child: Expanded(child: widget.body),
+          const SizedBox(width: 8),
+          Tooltip(
+            message: "Back".tl,
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back_sharp),
+              onPressed: () => popPopUp(context),
             ),
           ),
-          SizedBox(
-            height: MediaQuery.of(context).viewInsets.bottom -
-                        0.05 * MediaQuery.of(context).size.height >
-                    0
-                ? MediaQuery.of(context).viewInsets.bottom -
-                    0.05 * MediaQuery.of(context).size.height
-                : 0,
-          )
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              widget.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w500,
+                color: scheme.onSurface,
+              ),
+            ),
+          ),
+          if (widget.tailing != null) ...widget.tailing!,
+          const SizedBox(width: 8),
         ],
-      );
-    if (glassOn) {
-      return Material(color: Colors.transparent, child: column);
-    }
-    return Material(child: column);
+      ),
+    );
+    final column = Column(
+      children: [
+        header,
+        NotificationListener<ScrollNotification>(
+          onNotification: (notifications) {
+            if (notifications.metrics.axisDirection != AxisDirection.down) {
+              return false;
+            }
+            if (notifications.metrics.pixels ==
+                    notifications.metrics.minScrollExtent &&
+                !top) {
+              setState(() => top = true);
+            } else if (notifications.metrics.pixels !=
+                    notifications.metrics.minScrollExtent &&
+                top) {
+              setState(() => top = false);
+            }
+            return false;
+          },
+          child: MediaQuery.removePadding(
+            removeTop: true,
+            context: context,
+            child: Expanded(child: widget.body),
+          ),
+        ),
+        SizedBox(
+          height: MediaQuery.of(context).viewInsets.bottom -
+                      0.05 * MediaQuery.of(context).size.height >
+                  0
+              ? MediaQuery.of(context).viewInsets.bottom -
+                  0.05 * MediaQuery.of(context).size.height
+              : 0,
+        )
+      ],
+    );
+    return Material(
+      color: glassOn ? Colors.transparent : scheme.surface,
+      child: column,
+    );
   }
 }

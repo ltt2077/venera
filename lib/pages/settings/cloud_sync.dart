@@ -15,7 +15,7 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
   late bool autoSync;
   String? defaultId;
   String? activeId;
-  String disableSync = '';
+  late TextEditingController disableSyncCtrl;
 
   bool isTesting = false;
   bool isBusy = false;
@@ -23,7 +23,14 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
   @override
   void initState() {
     super.initState();
+    disableSyncCtrl = TextEditingController();
     _reload();
+  }
+
+  @override
+  void dispose() {
+    disableSyncCtrl.dispose();
+    super.dispose();
   }
 
   void _reload() {
@@ -36,39 +43,55 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
     autoSync = appdata.implicitData['cloudAutoSync'] ??
         appdata.implicitData['webdavAutoSync'] ??
         false;
-    if (appdata.settings['disableSyncFields'].toString().trim().isNotEmpty) {
-      disableSync = appdata.settings['disableSyncFields'];
-    }
+    final raw = appdata.settings['disableSyncFields'];
+    disableSyncCtrl.text = raw == null ? '' : raw.toString();
+  }
+
+  void _safeSetState(VoidCallback fn) {
+    if (!mounted) return;
+    setState(fn);
   }
 
   void _persist({bool saveFile = true}) {
-    CloudProfileStore.save(profiles, persist: false);
-    CloudProfileStore.defaultId = defaultId;
-    CloudProfileStore.activeId = activeId;
-    CloudProfileStore.syncMode = syncMode;
-    CloudProfileStore.autoFailover = autoFailover;
-    appdata.settings['disableSyncFields'] = disableSync;
-    appdata.implicitData['cloudAutoSync'] = autoSync;
-    appdata.implicitData['webdavAutoSync'] = autoSync;
-    appdata.writeImplicitData();
-    // Keep legacy keys roughly in sync for older code paths.
-    final active = CloudProfileStore.findById(activeId, profiles) ??
-        CloudProfileStore.findById(defaultId, profiles);
-    if (active != null) {
-      appdata.settings['cloudProvider'] = active.provider;
-      appdata.settings['cloudConfig'] = Map<String, dynamic>.from(active.config);
-      if (active.provider == 'webdav') {
-        final url = (active.config['url'] ?? '').toString();
-        if (url.isNotEmpty) {
-          appdata.settings['webdav'] = [
-            url,
-            active.config['user'] ?? '',
-            active.config['pass'] ?? '',
-          ];
+    try {
+      CloudProfileStore.save(profiles, persist: false);
+      CloudProfileStore.defaultId = defaultId;
+      CloudProfileStore.activeId = activeId;
+      CloudProfileStore.syncMode = syncMode;
+      CloudProfileStore.autoFailover = autoFailover;
+      appdata.settings['disableSyncFields'] = disableSyncCtrl.text;
+      appdata.implicitData['cloudAutoSync'] = autoSync;
+      appdata.implicitData['webdavAutoSync'] = autoSync;
+      appdata.writeImplicitData();
+      // Keep legacy keys roughly in sync for older code paths.
+      final active = CloudProfileStore.findById(activeId, profiles) ??
+          CloudProfileStore.findById(defaultId, profiles);
+      if (active != null) {
+        appdata.settings['cloudProvider'] = active.provider;
+        appdata.settings['cloudConfig'] =
+            Map<String, dynamic>.from(active.config);
+        if (active.provider == 'webdav') {
+          final url = (active.config['url'] ?? '').toString();
+          if (url.isNotEmpty) {
+            appdata.settings['webdav'] = [
+              url,
+              active.config['user'] ?? '',
+              active.config['pass'] ?? '',
+            ];
+          }
         }
       }
+      if (saveFile) {
+        // Avoid recursive auto-upload while the user is still editing profiles.
+        appdata.saveData(false);
+      }
+    } catch (e, s) {
+      Log.error('Cloud Sync', e, s);
+      if (mounted) {
+        context.showMessage(message: '${"Save failed".tl}: $e');
+      }
+      rethrow;
     }
-    if (saveFile) appdata.saveData();
   }
 
   Future<void> _editProfile(CloudProfile profile, {bool isNew = false}) async {
@@ -76,8 +99,8 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
       context,
       _CloudProfileEditor(profile: profile.copy(), isNew: isNew),
     );
-    if (result == null) return;
-    setState(() {
+    if (!mounted || result == null) return;
+    _safeSetState(() {
       final idx = profiles.indexWhere((e) => e.id == result.id);
       if (idx >= 0) {
         profiles[idx] = result;
@@ -87,13 +110,20 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
       defaultId ??= result.id;
       activeId ??= result.id;
     });
-    _persist();
+    try {
+      _persist();
+      if (mounted) {
+        context.showMessage(message: "Saved".tl);
+      }
+    } catch (_) {
+      // message already shown in _persist
+    }
   }
 
   void _movePriority(int index, int delta) {
     final next = index + delta;
     if (next < 0 || next >= profiles.length) return;
-    setState(() {
+    _safeSetState(() {
       final item = profiles.removeAt(index);
       profiles.insert(next, item);
     });
@@ -102,11 +132,14 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
 
   Future<void> _runSync() async {
     _persist();
-    setState(() => isBusy = true);
-    final res = await DataSync().syncNow(mode: syncMode == CloudSyncMode.manual
-        ? CloudSyncMode.smart
-        : syncMode);
-    setState(() => isBusy = false);
+    _safeSetState(() => isBusy = true);
+    final res = await DataSync().syncNow(
+      mode: syncMode == CloudSyncMode.manual
+          ? CloudSyncMode.smart
+          : syncMode,
+    );
+    _safeSetState(() => isBusy = false);
+    if (!mounted) return;
     if (res.error) {
       context.showMessage(message: res.errorMessage!);
     } else {
@@ -121,26 +154,36 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return PopUpWidgetScaffold(
       title: "Cloud Sync".tl,
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
-          Text("Profiles".tl, style: ts.s16.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            "Profiles".tl,
+            style: ts.s16.copyWith(
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             "Each profile is independent. Set a Default, reorder for failover priority, and switch Active anytime."
                 .tl,
             style: TextStyle(
               fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              color: scheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 12),
           if (profiles.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Text("No profiles yet. Tap Add.".tl),
+              child: Text(
+                "No profiles yet. Tap Add.".tl,
+                style: TextStyle(color: scheme.onSurface),
+              ),
             ),
           for (var i = 0; i < profiles.length; i++)
             _profileTile(profiles[i], i),
@@ -160,13 +203,15 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
                 isLoading: isTesting,
                 onPressed: () async {
                   if (profiles.isEmpty) {
-                    context.showMessage(message: "No profiles yet. Tap Add.".tl);
+                    context.showMessage(
+                        message: "No profiles yet. Tap Add.".tl);
                     return;
                   }
                   _persist();
-                  setState(() => isTesting = true);
+                  _safeSetState(() => isTesting = true);
                   final res = await DataSync().testConnection();
-                  setState(() => isTesting = false);
+                  _safeSetState(() => isTesting = false);
+                  if (!mounted) return;
                   if (res.error) {
                     context.showMessage(message: res.errorMessage!);
                   } else {
@@ -178,9 +223,18 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
             ],
           ),
           const SizedBox(height: 20),
-          Text("Sync".tl, style: ts.s16.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            "Sync".tl,
+            style: ts.s16.copyWith(
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            ),
+          ),
           const SizedBox(height: 8),
-          Text("Sync Mode".tl, style: ts.s14),
+          Text(
+            "Sync Mode".tl,
+            style: ts.s14.copyWith(color: scheme.onSurface),
+          ),
           const SizedBox(height: 6),
           Wrap(
             spacing: 8,
@@ -189,7 +243,7 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
                 ChoiceChip(
                   label: Text(_modeLabel(m).tl),
                   selected: syncMode == m,
-                  onSelected: (_) => setState(() => syncMode = m),
+                  onSelected: (_) => _safeSetState(() => syncMode = m),
                 ),
             ],
           ),
@@ -199,28 +253,35 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
                 .tl,
             style: TextStyle(
               fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              color: scheme.onSurfaceVariant,
             ),
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.sync),
-            title: Text("Auto Sync Data".tl),
+            leading: Icon(Icons.sync, color: scheme.onSurface),
+            title: Text(
+              "Auto Sync Data".tl,
+              style: TextStyle(color: scheme.onSurface),
+            ),
             trailing: Switch(
               value: autoSync,
-              onChanged: (v) => setState(() => autoSync = v),
+              onChanged: (v) => _safeSetState(() => autoSync = v),
             ),
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.alt_route),
-            title: Text("Auto Failover".tl),
+            leading: Icon(Icons.alt_route, color: scheme.onSurface),
+            title: Text(
+              "Auto Failover".tl,
+              style: TextStyle(color: scheme.onSurface),
+            ),
             subtitle: Text(
               "On failure, try the next profile in priority order.".tl,
+              style: TextStyle(color: scheme.onSurfaceVariant),
             ),
             trailing: Switch(
               value: autoFailover,
-              onChanged: (v) => setState(() => autoFailover = v),
+              onChanged: (v) => _safeSetState(() => autoFailover = v),
             ),
           ),
           const SizedBox(height: 8),
@@ -230,25 +291,21 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
               hintText: "field0, field1, field2, ...",
               border: const OutlineInputBorder(),
             ),
-            controller: TextEditingController(text: disableSync),
-            onChanged: (v) => disableSync = v,
+            controller: disableSyncCtrl,
           ),
           const SizedBox(height: 16),
           if (autoSync)
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(8),
-              ),
+            GlassCard(
+              padding: const EdgeInsets.all(10),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline, size: 20),
+                  Icon(Icons.info_outline, size: 20, color: scheme.primary),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       "Once saved, the app will automatically sync with the active profile (and failover if enabled)."
                           .tl,
+                      style: TextStyle(color: scheme.onSurface, fontSize: 13),
                     ),
                   ),
                 ],
@@ -262,9 +319,10 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
                   isLoading: isBusy && syncMode == CloudSyncMode.download,
                   onPressed: () async {
                     _persist();
-                    setState(() => isBusy = true);
+                    _safeSetState(() => isBusy = true);
                     final res = await DataSync().downloadData();
-                    setState(() => isBusy = false);
+                    _safeSetState(() => isBusy = false);
+                    if (!mounted) return;
                     if (res.error) {
                       context.showMessage(message: res.errorMessage!);
                     } else {
@@ -280,9 +338,10 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
                   isLoading: isBusy && syncMode == CloudSyncMode.upload,
                   onPressed: () async {
                     _persist();
-                    setState(() => isBusy = true);
+                    _safeSetState(() => isBusy = true);
                     final res = await DataSync().uploadData();
-                    setState(() => isBusy = false);
+                    _safeSetState(() => isBusy = false);
+                    if (!mounted) return;
                     if (res.error) {
                       context.showMessage(message: res.errorMessage!);
                     } else {
@@ -301,20 +360,29 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
                 child: Button.filled(
                   isLoading: isBusy,
                   onPressed: () async {
-                    _persist();
+                    try {
+                      _persist();
+                    } catch (_) {
+                      return;
+                    }
                     if (!autoSync && syncMode == CloudSyncMode.manual) {
-                      context.showMessage(message: "Saved".tl);
-                      App.rootPop();
+                      if (mounted) {
+                        context.showMessage(message: "Saved".tl);
+                      }
+                      popPopUp(context);
                       return;
                     }
                     if (autoSync || syncMode != CloudSyncMode.manual) {
                       await _runSync();
+                      if (!mounted) return;
                       if (DataSync().lastError == null) {
-                        App.rootPop();
+                        popPopUp(context);
                       }
                     } else {
-                      context.showMessage(message: "Saved".tl);
-                      App.rootPop();
+                      if (mounted) {
+                        context.showMessage(message: "Saved".tl);
+                      }
+                      popPopUp(context);
                     }
                   },
                   child: Text(
@@ -345,12 +413,12 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
   }
 
   Widget _profileTile(CloudProfile p, int index) {
+    final scheme = Theme.of(context).colorScheme;
     final isDefault = p.id == defaultId;
     final isActive = p.id == activeId;
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+    return GlassCard(
+      onTap: () => _editProfile(p),
       child: ListTile(
-        onTap: () => _editProfile(p),
         title: Row(
           children: [
             Expanded(
@@ -358,13 +426,16 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
                 p.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: scheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             if (isDefault)
               Padding(
                 padding: const EdgeInsets.only(left: 4),
-                child: Icon(Icons.star,
-                    size: 16, color: Theme.of(context).colorScheme.primary),
+                child: Icon(Icons.star, size: 16, color: scheme.primary),
               ),
             if (isActive)
               Padding(
@@ -373,10 +444,20 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer,
+                    color: scheme.primaryContainer.toOpacity(0.85),
                     borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: scheme.primary.toOpacity(0.35),
+                      width: 0.6,
+                    ),
                   ),
-                  child: Text("Active".tl, style: const TextStyle(fontSize: 10)),
+                  child: Text(
+                    "Active".tl,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: scheme.onPrimaryContainer,
+                    ),
+                  ),
                 ),
               ),
           ],
@@ -384,34 +465,39 @@ class _CloudSyncSettingPageState extends State<CloudSyncSettingPage> {
         subtitle: Text(
           '#${index + 1} · ${p.providerLabel}'
           '${p.isConfigured ? '' : ' · ${"incomplete".tl}'}',
+          style: TextStyle(color: scheme.onSurfaceVariant),
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
               tooltip: "Priority up".tl,
-              icon: const Icon(Icons.arrow_upward, size: 18),
+              icon: Icon(Icons.arrow_upward, size: 18, color: scheme.onSurface),
               onPressed: () => _movePriority(index, -1),
             ),
             IconButton(
               tooltip: "Priority down".tl,
-              icon: const Icon(Icons.arrow_downward, size: 18),
+              icon:
+                  Icon(Icons.arrow_downward, size: 18, color: scheme.onSurface),
               onPressed: () => _movePriority(index, 1),
             ),
             PopupMenuButton<String>(
               onSelected: (v) async {
                 if (v == 'default') {
-                  setState(() => defaultId = p.id);
+                  _safeSetState(() => defaultId = p.id);
                   _persist();
                 } else if (v == 'active') {
-                  setState(() => activeId = p.id);
+                  _safeSetState(() => activeId = p.id);
                   _persist();
-                  context.showMessage(message: "${"Switched to".tl} ${p.name}");
+                  if (mounted) {
+                    context.showMessage(
+                        message: "${"Switched to".tl} ${p.name}");
+                  }
                 } else if (v == 'toggle') {
-                  setState(() => p.enabled = !p.enabled);
+                  _safeSetState(() => p.enabled = !p.enabled);
                   _persist();
                 } else if (v == 'delete') {
-                  setState(() {
+                  _safeSetState(() {
                     profiles.removeWhere((e) => e.id == p.id);
                     if (defaultId == p.id) {
                       defaultId =
@@ -470,15 +556,18 @@ class _CloudProfileEditorState extends State<_CloudProfileEditor> {
     super.initState();
     profile = widget.profile;
     nameCtrl = TextEditingController(text: profile.name);
-    urlCtrl = TextEditingController(text: (profile.config['url'] ?? '').toString());
-    userCtrl = TextEditingController(text: (profile.config['user'] ?? '').toString());
-    passCtrl = TextEditingController(text: (profile.config['pass'] ?? '').toString());
+    urlCtrl =
+        TextEditingController(text: (profile.config['url'] ?? '').toString());
+    userCtrl =
+        TextEditingController(text: (profile.config['user'] ?? '').toString());
+    passCtrl =
+        TextEditingController(text: (profile.config['pass'] ?? '').toString());
     pathCtrl = TextEditingController(
         text: (profile.config['path'] ??
                 (profile.provider == 'alist' ? '/venera' : '/'))
             .toString());
-    cookieCtrl =
-        TextEditingController(text: (profile.config['cookie'] ?? '').toString());
+    cookieCtrl = TextEditingController(
+        text: (profile.config['cookie'] ?? '').toString());
     folderCtrl = TextEditingController(
         text: (profile.config['folderId'] ?? '0').toString());
   }
@@ -496,7 +585,8 @@ class _CloudProfileEditorState extends State<_CloudProfileEditor> {
   }
 
   void _applyFields() {
-    profile.name = nameCtrl.text.trim().isEmpty ? profile.name : nameCtrl.text.trim();
+    profile.name =
+        nameCtrl.text.trim().isEmpty ? profile.name : nameCtrl.text.trim();
     profile.config['url'] = urlCtrl.text.trim();
     profile.config['user'] = userCtrl.text;
     profile.config['pass'] = passCtrl.text;
@@ -509,6 +599,7 @@ class _CloudProfileEditorState extends State<_CloudProfileEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return PopUpWidgetScaffold(
       title: widget.isNew ? "Add Profile".tl : "Edit Profile".tl,
       body: ListView(
@@ -522,7 +613,10 @@ class _CloudProfileEditorState extends State<_CloudProfileEditor> {
             ),
           ),
           const SizedBox(height: 12),
-          Text("Provider".tl, style: ts.s14),
+          Text(
+            "Provider".tl,
+            style: ts.s14.copyWith(color: scheme.onSurface),
+          ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -555,7 +649,7 @@ class _CloudProfileEditorState extends State<_CloudProfileEditor> {
               decoration: InputDecoration(
                 labelText: profile.provider == 'alist'
                     ? "Alist URL".tl
-                    : "URL",
+                    : "URL".tl,
                 hintText: profile.provider == 'alist'
                     ? "http://192.168.1.1:5244"
                     : "http://host:5244/dav/folder",
@@ -598,7 +692,7 @@ class _CloudProfileEditorState extends State<_CloudProfileEditor> {
                         .tl,
                 style: TextStyle(
                   fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
             ),
@@ -629,7 +723,7 @@ class _CloudProfileEditorState extends State<_CloudProfileEditor> {
                     .tl,
                 style: TextStyle(
                   fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
             ),
@@ -643,7 +737,9 @@ class _CloudProfileEditorState extends State<_CloudProfileEditor> {
                   onPressed: () async {
                     _applyFields();
                     setState(() => testing = true);
-                    final res = await DataSync().testConnection(profile: profile);
+                    final res =
+                        await DataSync().testConnection(profile: profile);
+                    if (!mounted) return;
                     setState(() => testing = false);
                     if (res.error) {
                       context.showMessage(message: res.errorMessage!);
@@ -659,7 +755,9 @@ class _CloudProfileEditorState extends State<_CloudProfileEditor> {
                 child: Button.filled(
                   onPressed: () {
                     _applyFields();
-                    context.pop(profile);
+                    // MUST pop the PopUpWidget route, not the nested Navigator's
+                    // only page (that left a white screen and never returned).
+                    popPopUp(context, profile);
                   },
                   child: Text("Save".tl),
                 ),

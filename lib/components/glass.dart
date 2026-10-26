@@ -1,10 +1,10 @@
 part of 'components.dart';
 
 /// Liquid-glass helpers. Toggle via settings key `liquidGlass` (default ON).
-/// Platform profiles:
-/// - iOS: stronger blur, lighter fill, soft highlight border (Cupertino-like)
-/// - Android: Material translucent surfaces + dynamic color harmony
-/// - macOS/Windows/Linux: acrylic / mica-like denser blur for sidebars, title bar, sheets
+///
+/// Android note: a translucent fill alone looks like a flat Material card.
+/// We combine BackdropFilter blur with a visible frosted gradient mesh so the
+/// glass read is obvious even when little content sits behind the chrome.
 class Glass {
   Glass._();
 
@@ -18,7 +18,6 @@ class Glass {
     if (!enabled) return false;
     final mq = MediaQuery.maybeOf(context);
     if (mq == null) return true;
-    // Fall back to opaque surfaces under high-contrast / bold-text a11y modes.
     if (mq.highContrast || mq.boldText) return false;
     return true;
   }
@@ -26,26 +25,29 @@ class Glass {
   static double blurSigma(BuildContext context) {
     if (!shouldBlur(context)) return 0;
     if (App.isIOS) return 28;
-    if (App.isMacOS) return 40; // desktop acrylic
+    if (App.isMacOS) return 40;
     if (App.isWindows || App.isLinux) return 36;
-    // Android: higher sigma so BackdropFilter is obviously frosted
-    // (Impeller supports blur; previous σ=24 + 0.78 fill looked opaque).
-    return 32;
+    // Android Impeller: push sigma hard so frost is unmistakable.
+    return 48;
   }
 
   static double fillOpacity(BuildContext context) {
     if (!shouldBlur(context)) return 1.0;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    if (App.isIOS) return dark ? 0.55 : 0.62;
-    if (App.isMacOS) return dark ? 0.48 : 0.58; // frosted title/sidebar
-    if (App.isWindows || App.isLinux) return dark ? 0.52 : 0.64;
-    // Android: lower fill so blur + content behind chrome show through.
-    return dark ? 0.42 : 0.52;
+    if (App.isIOS) return dark ? 0.48 : 0.55;
+    if (App.isMacOS) return dark ? 0.42 : 0.52;
+    if (App.isWindows || App.isLinux) return dark ? 0.48 : 0.58;
+    // Android: keep fill thin so blur + mesh show through.
+    return dark ? 0.28 : 0.34;
   }
 
   static Color fillColor(BuildContext context, {Color? base}) {
     final scheme = Theme.of(context).colorScheme;
-    final c = base ?? scheme.surface;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    // Prefer surfaceContainerLowest so light/dark stay coherent (no dark chrome
+    // on light cards).
+    final c = base ??
+        (dark ? scheme.surfaceContainerHigh : scheme.surfaceContainerLowest);
     return c.toOpacity(fillOpacity(context));
   }
 
@@ -53,12 +55,12 @@ class Glass {
     if (!shouldBlur(context)) return null;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
-    if (App.isIOS || App.isMacOS) {
+    if (App.isIOS || App.isMacOS || App.isAndroid) {
       return Border.all(
         color: dark
-            ? Colors.white.toOpacity(0.18)
-            : Colors.white.toOpacity(0.55),
-        width: 0.6,
+            ? Colors.white.toOpacity(0.22)
+            : Colors.white.toOpacity(0.65),
+        width: 0.8,
       );
     }
     return Border.all(
@@ -74,11 +76,80 @@ class Glass {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return [
       BoxShadow(
-        color: Colors.black.toOpacity(dark ? 0.28 : 0.08),
-        blurRadius: App.isDesktop ? 24 : 16,
-        offset: const Offset(0, 8),
+        color: Colors.black.toOpacity(dark ? 0.32 : 0.10),
+        blurRadius: App.isDesktop ? 28 : 20,
+        offset: const Offset(0, 10),
       ),
     ];
+  }
+
+  /// Soft color orbs painted *behind* the blur so frost is always visible.
+  static Widget frostedMesh(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    return IgnorePointer(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: dark
+                    ? [
+                        scheme.primary.toOpacity(0.22),
+                        scheme.tertiary.toOpacity(0.12),
+                        scheme.surface.toOpacity(0.55),
+                      ]
+                    : [
+                        scheme.primary.toOpacity(0.18),
+                        scheme.secondary.toOpacity(0.12),
+                        Colors.white.toOpacity(0.55),
+                      ],
+              ),
+            ),
+          ),
+          Positioned(
+            top: -40,
+            right: -20,
+            child: _orb(
+              size: 140,
+              color: scheme.primary.toOpacity(dark ? 0.35 : 0.28),
+            ),
+          ),
+          Positioned(
+            bottom: -30,
+            left: -30,
+            child: _orb(
+              size: 160,
+              color: scheme.tertiary.toOpacity(dark ? 0.28 : 0.22),
+            ),
+          ),
+          Positioned(
+            top: 80,
+            left: 40,
+            child: _orb(
+              size: 90,
+              color: scheme.secondary.toOpacity(dark ? 0.22 : 0.18),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Widget _orb({required double size, required Color color}) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [color, color.toOpacity(0)],
+        ),
+      ),
+    );
   }
 }
 
@@ -97,6 +168,7 @@ class GlassSurface extends StatelessWidget {
     this.border,
     this.color,
     this.elevationShadow = true,
+    this.showMesh = true,
   });
 
   final Widget child;
@@ -109,47 +181,111 @@ class GlassSurface extends StatelessWidget {
   final BoxBorder? border;
   final Color? color;
   final bool elevationShadow;
+  /// Paint frosted gradient orbs under the blur (needed on Android sheets).
+  final bool showMesh;
 
   @override
   Widget build(BuildContext context) {
     final radius = borderRadius ?? BorderRadius.zero;
     final useGlass = Glass.shouldBlur(context);
     final sigma = blur ?? (useGlass ? Glass.blurSigma(context) : 0);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
     final fill = color ??
-        Theme.of(context).colorScheme.surface.toOpacity(
-              opacity ?? (useGlass ? Glass.fillOpacity(context) : 1.0),
-            );
+        (useGlass
+            ? Glass.fillColor(context)
+            : scheme.surface);
+    final effectiveFill = color != null
+        ? fill
+        : (useGlass
+            ? (dark ? scheme.surfaceContainerHigh : scheme.surfaceContainerLowest)
+                .toOpacity(opacity ?? Glass.fillOpacity(context))
+            : scheme.surface);
     final boxBorder = border ?? Glass.highlightBorder(context);
 
-    Widget content = Container(
+    Widget panel = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: fill,
+        color: useGlass ? effectiveFill : fill,
         borderRadius: radius == BorderRadius.zero ? null : radius,
-        border: boxBorder,
+        border: useGlass ? boxBorder : null,
         boxShadow: elevationShadow ? Glass.softShadow(context) : null,
+        gradient: useGlass
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.toOpacity(dark ? 0.14 : 0.42),
+                  effectiveFill,
+                  (dark ? Colors.black : Colors.white)
+                      .toOpacity(dark ? 0.18 : 0.08),
+                ],
+                stops: const [0.0, 0.45, 1.0],
+              )
+            : null,
       ),
       child: child,
     );
 
     if (sigma > 0) {
-      content = BlurEffect(
-        blur: sigma,
-        borderRadius: radius == BorderRadius.zero ? null : radius,
-        child: content,
-      );
-    } else if (radius != BorderRadius.zero) {
-      content = ClipRRect(
-        borderRadius: radius,
+      final clipped = ClipRRect(
+        borderRadius: radius == BorderRadius.zero
+            ? BorderRadius.zero
+            : radius,
         clipBehavior: clipBehavior,
-        child: content,
+        child: Stack(
+          fit: StackFit.passthrough,
+          children: [
+            if (showMesh)
+              Positioned.fill(child: Glass.frostedMesh(context)),
+            // Real backdrop blur of whatever is behind this panel.
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(
+                  sigmaX: sigma,
+                  sigmaY: sigma,
+                  tileMode:
+                      App.isAndroid ? TileMode.clamp : TileMode.mirror,
+                ),
+                child: const ColoredBox(color: Colors.transparent),
+              ),
+            ),
+            // Extra soft blur of the mesh itself (fake frost if backdrop empty).
+            if (showMesh && App.isAndroid)
+              Positioned.fill(
+                child: ImageFiltered(
+                  imageFilter: ui.ImageFilter.blur(
+                    sigmaX: 18,
+                    sigmaY: 18,
+                    tileMode: TileMode.decal,
+                  ),
+                  child: Opacity(
+                    opacity: 0.55,
+                    child: Glass.frostedMesh(context),
+                  ),
+                ),
+              ),
+            panel,
+          ],
+        ),
       );
+      if (margin != null) {
+        return Padding(padding: margin!, child: clipped);
+      }
+      return clipped;
     }
 
-    if (margin != null) {
-      content = Padding(padding: margin!, child: content);
+    if (radius != BorderRadius.zero) {
+      panel = ClipRRect(
+        borderRadius: radius,
+        clipBehavior: clipBehavior,
+        child: panel,
+      );
     }
-    return content;
+    if (margin != null) {
+      panel = Padding(padding: margin!, child: panel);
+    }
+    return panel;
   }
 }
 
@@ -179,7 +315,47 @@ class GlassChrome extends StatelessWidget {
       borderRadius: borderRadius,
       color: color ?? Glass.fillColor(context),
       elevationShadow: false,
+      showMesh: false,
       child: child,
     );
+  }
+}
+
+/// Theme-aware glass card for settings lists (replaces opaque Material Card).
+class GlassCard extends StatelessWidget {
+  const GlassCard({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.margin,
+    this.padding,
+  });
+
+  final Widget child;
+  final VoidCallback? onTap;
+  final EdgeInsetsGeometry? margin;
+  final EdgeInsetsGeometry? padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(14);
+    final body = GlassSurface(
+      borderRadius: radius,
+      margin: margin ?? const EdgeInsets.only(bottom: 8),
+      padding: padding,
+      elevationShadow: true,
+      showMesh: true,
+      child: Material(
+        color: Colors.transparent,
+        child: onTap == null
+            ? child
+            : InkWell(
+                borderRadius: radius,
+                onTap: onTap,
+                child: child,
+              ),
+      ),
+    );
+    return body;
   }
 }
