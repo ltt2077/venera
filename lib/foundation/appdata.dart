@@ -184,6 +184,15 @@ class Settings with ChangeNotifier {
     'color': 'system', // red, pink, purple, green, orange, blue
     'theme_mode': 'system', // light, dark, system
     'liquidGlass': true, // frosted / liquid-glass chrome (default ON)
+    'liquidGlassBlur': 0.6,
+    'liquidGlassFrost': 14.0,
+    'liquidGlassOpacity': 0.53,
+    'liquidGlassThickness': 32.0,
+    'liquidGlassRefraction': 1.24,
+    'liquidGlassSpecular': 1.0,
+    'liquidGlassDockMargin': 16.0,
+    'liquidGlassDockRadius': 28.0,
+    'liquidGlassQuality': 'adaptive', // adaptive | premium | standard | minimal
     'cloudProvider': 'webdav', // legacy single-provider (migrated to profiles)
     'cloudConfig': <String, dynamic>{}, // legacy config (migrated to profiles)
     'cloudProfiles': <dynamic>[], // list of named sync profiles

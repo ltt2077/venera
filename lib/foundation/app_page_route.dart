@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/appdata.dart';
 
 const double _kBackGestureWidth = 20.0;
 const int _kMaxDroppedSwipePageForwardAnimationTime = 800;
@@ -21,12 +22,22 @@ class AppPageRoute<T> extends PageRoute<T> with _AppRouteTransitionMixin{
     super.barrierDismissible = false,
     this.enableIOSGesture = true,
     this.preventRebuild = true,
-  }) {
-    assert(opaque);
-  }
+  });
 
   /// Builds the primary contents of the route.
   final WidgetBuilder builder;
+
+  /// When liquid glass is on, routes must be translucent so the aurora
+  /// wallpaper (and the page underneath) stay visible during push/pop —
+  /// opaque Material/PredictiveBack surfaces were causing the white flash.
+  static bool get _glassOn {
+    final v = appdata.settings['liquidGlass'];
+    if (v is bool) return v;
+    return true;
+  }
+
+  @override
+  bool get opaque => !_glassOn;
 
   String? label;
 
@@ -93,6 +104,15 @@ mixin _AppRouteTransitionMixin<T> on PageRoute<T> {
       result = buildContent(context);
     }
 
+    // Keep page chrome transparent under liquid glass so push animations do
+    // not paint a solid white/surface slab over the wallpaper.
+    if (AppPageRoute._glassOn) {
+      result = Material(
+        type: MaterialType.transparency,
+        child: result,
+      );
+    }
+
     return Semantics(
       scopesRoute: true,
       explicitChildNodes: true,
@@ -117,26 +137,28 @@ mixin _AppRouteTransitionMixin<T> on PageRoute<T> {
 
   @override
   Widget buildTransitions(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation, Widget child) {
-    PageTransitionsBuilder builder;
-    if (App.isAndroid) {
-      builder = PredictiveBackPageTransitionsBuilder();
-    } else {
-      builder = SlidePageTransitionBuilder();
-  }
+    // PredictiveBack paints an opaque colorScheme.surface fill — flashes white
+    // over transparent glass scaffolds. Always use our slide transition when
+    // liquid glass is enabled (and on non-Android platforms).
+    final PageTransitionsBuilder builder =
+        (App.isAndroid && !AppPageRoute._glassOn)
+            ? PredictiveBackPageTransitionsBuilder()
+            : SlidePageTransitionBuilder();
 
-  return builder.buildTransitions(
-        this,
-        context,
-        animation,
-        secondaryAnimation,
-    enableIOSGesture && App.isIOS
-      ? IOSBackGestureDetector(
-        gestureWidth: _kBackGestureWidth,
-        enabledCallback: () => _isPopGestureEnabled<T>(this),
-        onStartPopGesture: () => _startPopGesture(this),
-        child: child,
-        )
-      : child);
+    return builder.buildTransitions(
+      this,
+      context,
+      animation,
+      secondaryAnimation,
+      enableIOSGesture && App.isIOS
+          ? IOSBackGestureDetector(
+              gestureWidth: _kBackGestureWidth,
+              enabledCallback: () => _isPopGestureEnabled<T>(this),
+              onStartPopGesture: () => _startPopGesture(this),
+              child: child,
+            )
+          : child,
+    );
   }
 
   IOSBackGestureController _startPopGesture(PageRoute<T> route) {
@@ -479,8 +501,13 @@ class SlidePageTransitionBuilder extends PageTransitionsBuilder {
           color: Colors.transparent,
           borderRadius: BorderRadius.zero,
           clipBehavior: Clip.hardEdge,
-          elevation: 6,
-          child: Material(child: child),
+          elevation: AppPageRoute._glassOn ? 0 : 6,
+          shadowColor: Colors.transparent,
+          child: Material(
+            type: MaterialType.transparency,
+            color: Colors.transparent,
+            child: child,
+          ),
         ),
       ),
     );

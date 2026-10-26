@@ -31,19 +31,7 @@ void main(List<String> args) {
       await LiquidGlassWidgets.initialize(
         enablePerformanceMonitor: false,
       );
-      runApp(
-        LiquidGlassWidgets.wrap(
-          adaptiveQuality: true,
-          respectSystemAccessibility: true,
-          brightnessResolver: Theme.maybeBrightnessOf,
-          theme: GlassThemeData.simple(
-            blur: 10,
-            thickness: 28,
-            quality: GlassQuality.standard,
-          ),
-          child: const MyApp(),
-        ),
-      );
+      runApp(const MyApp());
       if (App.isDesktop) {
         await windowManager.ensureInitialized();
         windowManager.waitUntilReadyToShow().then((_) async {
@@ -207,7 +195,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     } else {
       home = const MainPage();
     }
-    return DynamicColorBuilder(builder: (light, dark) {
+    final adaptive = Glass.qualityMode == 'adaptive';
+    return LiquidGlassWidgets.wrap(
+      adaptiveQuality: adaptive,
+      respectSystemAccessibility: true,
+      brightnessResolver: Theme.maybeBrightnessOf,
+      theme: Glass.themeData(),
+      child: DynamicColorBuilder(builder: (light, dark) {
       Color? primary, secondary, tertiary;
       if (appdata.settings['color'] != 'system' ||
           light == null ||
@@ -317,7 +311,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           throw ('widget is null');
         },
       );
-    });
+    }),
+    );
   }
 }
 

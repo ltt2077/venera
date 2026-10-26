@@ -24,11 +24,96 @@ class Glass {
     return true;
   }
 
+  static double _num(String key, double fallback) {
+    final v = appdata.settings[key];
+    if (v is num) return v.toDouble();
+    return fallback;
+  }
+
+  static String get qualityMode {
+    final v = appdata.settings['liquidGlassQuality'];
+    if (v is String && v.isNotEmpty) return v;
+    return 'adaptive';
+  }
+
+  /// Resolve quality for a chrome tier. Fixed presets override adaptive.
+  static GlassQuality qualityFor({GlassQuality preferred = GlassQuality.standard}) {
+    switch (qualityMode) {
+      case 'premium':
+        return GlassQuality.premium;
+      case 'standard':
+        return GlassQuality.standard;
+      case 'minimal':
+        return GlassQuality.minimal;
+      default:
+        return preferred;
+    }
+  }
+
+  static double get dockHPad => _num('liquidGlassDockMargin', 16);
+  static double get dockRadius => _num('liquidGlassDockRadius', 28);
+
   static LiquidGlassSettings settingsFor(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return dark
+    final base = dark
         ? LiquidGlassSettings.ios27Dark
         : LiquidGlassSettings.ios27Light;
+
+    final blur = _num('liquidGlassBlur', base.blur);
+    final frost = _num('liquidGlassFrost', base.frost);
+    final thickness = _num('liquidGlassThickness', base.thickness);
+    final refraction = _num('liquidGlassRefraction', base.refractiveIndex);
+    final specular = _num('liquidGlassSpecular', base.rimLight);
+    var opacity = _num('liquidGlassOpacity', base.glassColor.a);
+    // Factory default in appdata is the light ios27 alpha (0.53). In dark mode
+    // keep the package dark tint until the user moves the slider.
+    if (dark && (opacity - 0.53).abs() < 0.001) {
+      opacity = base.glassColor.a;
+    }
+
+    final baseColor = base.glassColor;
+    final tint = baseColor.withValues(alpha: opacity.clamp(0.0, 1.0));
+
+    return base.copyWith(
+      blur: blur,
+      frost: frost,
+      thickness: thickness,
+      refractiveIndex: refraction,
+      rimLight: specular,
+      lightIntensity: (specular * 0.35).clamp(0.0, 1.5),
+      glowIntensity: (0.4 + specular * 0.4).clamp(0.0, 1.5),
+      glassColor: tint,
+    );
+  }
+
+  static GlassThemeData themeData() {
+    // Prefer last known theme via settings-driven numbers only.
+    final blur = _num('liquidGlassBlur', 0.6);
+    final thickness = _num('liquidGlassThickness', 32);
+    final q = qualityFor(preferred: GlassQuality.standard);
+    return GlassThemeData.simple(
+      blur: blur < 1 ? blur * 12 : blur, // theme helper expects softer scale
+      thickness: thickness,
+      quality: q,
+    );
+  }
+
+  static void resetParams() {
+    const defaults = {
+      'liquidGlassBlur': 0.6,
+      'liquidGlassFrost': 14.0,
+      'liquidGlassOpacity': 0.53,
+      'liquidGlassThickness': 32.0,
+      'liquidGlassRefraction': 1.24,
+      'liquidGlassSpecular': 1.0,
+      'liquidGlassDockMargin': 16.0,
+      'liquidGlassDockRadius': 28.0,
+      'liquidGlassQuality': 'adaptive',
+    };
+    for (final e in defaults.entries) {
+      appdata.settings[e.key] = e.value;
+    }
+    appdata.saveData();
   }
 
   static LiquidShape shape({double radius = 14}) =>
@@ -218,7 +303,7 @@ class GlassSurface extends StatelessWidget {
           ? LiquidRoundedSuperellipse(borderRadius: r)
           : const LiquidRoundedRectangle(borderRadius: 0),
       settings: Glass.settingsFor(context),
-      quality: quality,
+      quality: Glass.qualityFor(preferred: quality),
       useOwnLayer: true,
       clipBehavior: clipBehavior,
       allowElevation: elevationShadow,
@@ -258,7 +343,7 @@ class GlassChrome extends StatelessWidget {
       borderRadius: borderRadius,
       color: color,
       elevationShadow: false,
-      quality: GlassQuality.premium,
+      quality: Glass.qualityFor(preferred: GlassQuality.premium),
       child: child,
     );
   }
@@ -298,7 +383,7 @@ class GlassCard extends StatelessWidget {
 
     Widget body = GlassContainer.card(
       useOwnLayer: true,
-      quality: GlassQuality.minimal,
+      quality: Glass.qualityFor(preferred: GlassQuality.minimal),
       settings: Glass.settingsFor(context),
       padding: padding ?? EdgeInsets.zero,
       margin: margin ?? const EdgeInsets.only(bottom: 8),

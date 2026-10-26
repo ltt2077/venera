@@ -96,7 +96,6 @@ class NaviPaneState extends State<NaviPane>
   /// Floating liquid-glass dock (GlassTabBar.bottom) metrics — BiliPai-like.
   static const _kFloatingBarHeight = 56.0;
   static const _kFloatingBarVertPad = 10.0;
-  static const _kFloatingBarHPad = 18.0;
 
   static const _kFoldedSideBarWidth = 72.0;
 
@@ -337,12 +336,12 @@ class NaviPaneState extends State<NaviPane>
           ],
           selectedIndex: currentPage,
           onTabSelected: updatePage,
-          horizontalPadding: _kFloatingBarHPad,
+          horizontalPadding: Glass.dockHPad,
           verticalPadding: _kFloatingBarVertPad,
           barHeight: _kFloatingBarHeight,
-          barBorderRadius: 28,
-          quality: GlassQuality.premium,
-          backgroundQuality: GlassQuality.standard,
+          barBorderRadius: Glass.dockRadius,
+          quality: Glass.qualityFor(preferred: GlassQuality.premium),
+          backgroundQuality: Glass.qualityFor(preferred: GlassQuality.standard),
           settings: Glass.settingsFor(context),
           showIndicator: true,
           magnification: 1.12,

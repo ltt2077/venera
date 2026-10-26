@@ -63,7 +63,7 @@ class PopUpWidget<T> extends PopupRoute<T> {
                   ? const BorderRadius.all(Radius.circular(16))
                   : BorderRadius.zero,
               elevationShadow: false,
-              quality: GlassQuality.standard,
+              quality: Glass.qualityFor(preferred: GlassQuality.standard),
               child: page,
             )
           : Material(

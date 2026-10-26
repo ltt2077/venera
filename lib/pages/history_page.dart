@@ -244,6 +244,7 @@ class _HistoryPageState extends State<HistoryPage> {
         }
       },
       child: Scaffold(
+        backgroundColor: Glass.enabled ? Colors.transparent : null,
         body: SmoothCustomScrollView(
           slivers: [
             SliverAppbar(
