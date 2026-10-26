@@ -81,9 +81,9 @@ class _AppbarState extends State<Appbar> {
     var content = Container(
       decoration: BoxDecoration(
         color: widget.backgroundColor ??
-            context.colorScheme.surface.toOpacity(
-              glassOn ? Glass.fillOpacity(context) : 0.86,
-            ),
+            (glassOn
+                ? Colors.transparent
+                : context.colorScheme.surface.toOpacity(0.86)),
         border: glassOn
             ? Border(
                 bottom: BorderSide(
@@ -131,10 +131,11 @@ class _AppbarState extends State<Appbar> {
         elevation: _scrolledUnder ? 2 : 0,
         child: content,
       );
+    } else if (glassOn) {
+      // Real package glass (premium) for persistent app bars.
+      return GlassChrome(child: content);
     } else {
-      final sigma = Glass.shouldBlur(context)
-          ? (_scrolledUnder ? Glass.blurSigma(context) : Glass.blurSigma(context) * 0.55)
-          : (_scrolledUnder ? 15.0 : 0.0);
+      final sigma = _scrolledUnder ? 15.0 : 0.0;
       return BlurEffect(
         blur: sigma,
         child: content,
@@ -244,13 +245,19 @@ class _MySliverAppBarDelegate extends SliverPersistentHeaderDelegate {
 
     if (style == AppbarStyle.blur) {
       final glassOn = Glass.shouldBlur(context);
+      if (glassOn) {
+        return SizedBox.expand(
+          child: GlassChrome(
+            borderRadius: BorderRadius.circular(radius),
+            child: body,
+          ),
+        );
+      }
       return SizedBox.expand(
         child: BlurEffect(
-          blur: glassOn ? Glass.blurSigma(context) : 15,
+          blur: 15,
           child: Material(
-            color: context.colorScheme.surface.toOpacity(
-              glassOn ? Glass.fillOpacity(context) : 0.86,
-            ),
+            color: context.colorScheme.surface.toOpacity(0.86),
             elevation: 0,
             borderRadius: BorderRadius.circular(radius),
             child: body,

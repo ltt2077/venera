@@ -1,10 +1,12 @@
 part of 'components.dart';
 
-/// Liquid-glass helpers. Toggle via settings key `liquidGlass` (default ON).
+/// Liquid-glass helpers backed by [liquid_glass_widgets] (real shader glass).
+/// Toggle via settings key `liquidGlass` (default ON).
 ///
-/// Android note: a translucent fill alone looks like a flat Material card.
-/// We combine BackdropFilter blur with a visible frosted gradient mesh so the
-/// glass read is obvious even when little content sits behind the chrome.
+/// Quality strategy (Android mid-range first):
+/// - Nav / app bars → [GlassQuality.premium] (or adaptive downgrade)
+/// - Sheets / popups → [GlassQuality.standard]
+/// - Dense list cards (Cloud Sync rows) → [GlassQuality.minimal]
 class Glass {
   Glass._();
 
@@ -22,30 +24,106 @@ class Glass {
     return true;
   }
 
+  static LiquidGlassSettings settingsFor(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return dark
+        ? LiquidGlassSettings.ios27Dark
+        : LiquidGlassSettings.ios27Light;
+  }
+
+  static LiquidShape shape({double radius = 14}) =>
+      LiquidRoundedSuperellipse(borderRadius: radius);
+
+  /// Soft aurora wallpaper so refractive glass has colorful content to sample.
+  /// Not a fake glass substitute — only a backdrop for the package shaders.
+  static Widget wallpaper(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: dark
+                ? [
+                    scheme.surface,
+                    Color.lerp(scheme.surface, scheme.primary, 0.35)!,
+                    Color.lerp(scheme.surface, scheme.tertiary, 0.28)!,
+                    scheme.surface,
+                  ]
+                : [
+                    Color.lerp(Colors.white, scheme.primary, 0.18)!,
+                    Color.lerp(Colors.white, scheme.secondary, 0.22)!,
+                    Color.lerp(Colors.white, scheme.tertiary, 0.16)!,
+                    Color.lerp(Colors.white, scheme.primary, 0.10)!,
+                  ],
+            stops: const [0.0, 0.35, 0.7, 1.0],
+          ),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned(
+              top: -80,
+              right: -40,
+              child: _orb(220, scheme.primary.toOpacity(dark ? 0.45 : 0.32)),
+            ),
+            Positioned(
+              bottom: -60,
+              left: -50,
+              child: _orb(260, scheme.tertiary.toOpacity(dark ? 0.38 : 0.26)),
+            ),
+            Positioned(
+              top: 180,
+              left: 40,
+              child: _orb(140, scheme.secondary.toOpacity(dark ? 0.30 : 0.20)),
+            ),
+            // Soft vignette keeps text readable over bright orbs.
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment.center,
+                  radius: 1.15,
+                  colors: [
+                    Colors.transparent,
+                    (dark ? Colors.black : Colors.white).toOpacity(dark ? 0.35 : 0.18),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _orb(double size, Color color) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(colors: [color, color.toOpacity(0)]),
+      ),
+    );
+  }
+
+  // ---- legacy helpers kept for call sites that still read opacities ----
   static double blurSigma(BuildContext context) {
     if (!shouldBlur(context)) return 0;
-    if (App.isIOS) return 28;
-    if (App.isMacOS) return 40;
-    if (App.isWindows || App.isLinux) return 36;
-    // Android Impeller: push sigma hard so frost is unmistakable.
-    return 48;
+    return 24;
   }
 
   static double fillOpacity(BuildContext context) {
     if (!shouldBlur(context)) return 1.0;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    if (App.isIOS) return dark ? 0.48 : 0.55;
-    if (App.isMacOS) return dark ? 0.42 : 0.52;
-    if (App.isWindows || App.isLinux) return dark ? 0.48 : 0.58;
-    // Android: keep fill thin so blur + mesh show through.
     return dark ? 0.28 : 0.34;
   }
 
   static Color fillColor(BuildContext context, {Color? base}) {
     final scheme = Theme.of(context).colorScheme;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    // Prefer surfaceContainerLowest so light/dark stay coherent (no dark chrome
-    // on light cards).
     final c = base ??
         (dark ? scheme.surfaceContainerHigh : scheme.surfaceContainerLowest);
     return c.toOpacity(fillOpacity(context));
@@ -54,19 +132,8 @@ class Glass {
   static Border? highlightBorder(BuildContext context, {double radius = 12}) {
     if (!shouldBlur(context)) return null;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final scheme = Theme.of(context).colorScheme;
-    if (App.isIOS || App.isMacOS || App.isAndroid) {
-      return Border.all(
-        color: dark
-            ? Colors.white.toOpacity(0.22)
-            : Colors.white.toOpacity(0.65),
-        width: 0.8,
-      );
-    }
     return Border.all(
-      color: dark
-          ? scheme.outlineVariant.toOpacity(0.55)
-          : scheme.outlineVariant.toOpacity(0.35),
+      color: Colors.white.toOpacity(dark ? 0.22 : 0.55),
       width: 0.7,
     );
   }
@@ -76,85 +143,24 @@ class Glass {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return [
       BoxShadow(
-        color: Colors.black.toOpacity(dark ? 0.32 : 0.10),
-        blurRadius: App.isDesktop ? 28 : 20,
-        offset: const Offset(0, 10),
+        color: Colors.black.toOpacity(dark ? 0.28 : 0.08),
+        blurRadius: 18,
+        offset: const Offset(0, 8),
       ),
     ];
   }
-
-  /// Soft color orbs painted *behind* the blur so frost is always visible.
-  static Widget frostedMesh(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final scheme = Theme.of(context).colorScheme;
-    return IgnorePointer(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: dark
-                    ? [
-                        scheme.primary.toOpacity(0.22),
-                        scheme.tertiary.toOpacity(0.12),
-                        scheme.surface.toOpacity(0.55),
-                      ]
-                    : [
-                        scheme.primary.toOpacity(0.18),
-                        scheme.secondary.toOpacity(0.12),
-                        Colors.white.toOpacity(0.55),
-                      ],
-              ),
-            ),
-          ),
-          Positioned(
-            top: -40,
-            right: -20,
-            child: _orb(
-              size: 140,
-              color: scheme.primary.toOpacity(dark ? 0.35 : 0.28),
-            ),
-          ),
-          Positioned(
-            bottom: -30,
-            left: -30,
-            child: _orb(
-              size: 160,
-              color: scheme.tertiary.toOpacity(dark ? 0.28 : 0.22),
-            ),
-          ),
-          Positioned(
-            top: 80,
-            left: 40,
-            child: _orb(
-              size: 90,
-              color: scheme.secondary.toOpacity(dark ? 0.22 : 0.18),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static Widget _orb({required double size, required Color color}) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [color, color.toOpacity(0)],
-        ),
-      ),
-    );
-  }
 }
 
-/// Frosted glass panel used for nav chrome, cards, dialogs, flyouts, sheets.
-/// Does NOT wrap comic page content — only chrome.
+/// Soft full-screen aurora used behind transparent scaffolds.
+class GlassWallpaper extends StatelessWidget {
+  const GlassWallpaper({super.key});
+
+  @override
+  Widget build(BuildContext context) => Glass.wallpaper(context);
+}
+
+/// Frosted / refractive glass panel for nav chrome, sheets, cards.
+/// Uses [AdaptiveGlass] from liquid_glass_widgets when enabled.
 class GlassSurface extends StatelessWidget {
   const GlassSurface({
     super.key,
@@ -169,6 +175,7 @@ class GlassSurface extends StatelessWidget {
     this.color,
     this.elevationShadow = true,
     this.showMesh = true,
+    this.quality = GlassQuality.standard,
   });
 
   final Widget child;
@@ -181,115 +188,51 @@ class GlassSurface extends StatelessWidget {
   final BoxBorder? border;
   final Color? color;
   final bool elevationShadow;
-  /// Paint frosted gradient orbs under the blur (needed on Android sheets).
   final bool showMesh;
+  final GlassQuality quality;
 
   @override
   Widget build(BuildContext context) {
     final radius = borderRadius ?? BorderRadius.zero;
-    final useGlass = Glass.shouldBlur(context);
-    final sigma = blur ?? (useGlass ? Glass.blurSigma(context) : 0);
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final scheme = Theme.of(context).colorScheme;
-    final fill = color ??
-        (useGlass
-            ? Glass.fillColor(context)
-            : scheme.surface);
-    final effectiveFill = color != null
-        ? fill
-        : (useGlass
-            ? (dark ? scheme.surfaceContainerHigh : scheme.surfaceContainerLowest)
-                .toOpacity(opacity ?? Glass.fillOpacity(context))
-            : scheme.surface);
-    final boxBorder = border ?? Glass.highlightBorder(context);
+    final r = radius == BorderRadius.zero
+        ? 0.0
+        : (radius.topLeft.x > 0 ? radius.topLeft.x : 14.0);
 
-    Widget panel = Container(
-      padding: padding,
-      decoration: BoxDecoration(
-        color: useGlass ? effectiveFill : fill,
+    if (!Glass.shouldBlur(context)) {
+      Widget panel = Material(
+        color: color ?? Theme.of(context).colorScheme.surface,
         borderRadius: radius == BorderRadius.zero ? null : radius,
-        border: useGlass ? boxBorder : null,
-        boxShadow: elevationShadow ? Glass.softShadow(context) : null,
-        gradient: useGlass
-            ? LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.white.toOpacity(dark ? 0.14 : 0.42),
-                  effectiveFill,
-                  (dark ? Colors.black : Colors.white)
-                      .toOpacity(dark ? 0.18 : 0.08),
-                ],
-                stops: const [0.0, 0.45, 1.0],
-              )
-            : null,
-      ),
-      child: child,
+        child: padding == null ? child : Padding(padding: padding!, child: child),
+      );
+      if (margin != null) panel = Padding(padding: margin!, child: panel);
+      return panel;
+    }
+
+    Widget content = child;
+    if (padding != null) {
+      content = Padding(padding: padding!, child: content);
+    }
+
+    final glass = AdaptiveGlass(
+      shape: r > 0
+          ? LiquidRoundedSuperellipse(borderRadius: r)
+          : const LiquidRoundedRectangle(borderRadius: 0),
+      settings: Glass.settingsFor(context),
+      quality: quality,
+      useOwnLayer: true,
+      clipBehavior: clipBehavior,
+      allowElevation: elevationShadow,
+      child: content,
     );
 
-    if (sigma > 0) {
-      final clipped = ClipRRect(
-        borderRadius: radius == BorderRadius.zero
-            ? BorderRadius.zero
-            : radius,
-        clipBehavior: clipBehavior,
-        child: Stack(
-          fit: StackFit.passthrough,
-          children: [
-            if (showMesh)
-              Positioned.fill(child: Glass.frostedMesh(context)),
-            // Real backdrop blur of whatever is behind this panel.
-            Positioned.fill(
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(
-                  sigmaX: sigma,
-                  sigmaY: sigma,
-                  tileMode:
-                      App.isAndroid ? TileMode.clamp : TileMode.mirror,
-                ),
-                child: const ColoredBox(color: Colors.transparent),
-              ),
-            ),
-            // Extra soft blur of the mesh itself (fake frost if backdrop empty).
-            if (showMesh && App.isAndroid)
-              Positioned.fill(
-                child: ImageFiltered(
-                  imageFilter: ui.ImageFilter.blur(
-                    sigmaX: 18,
-                    sigmaY: 18,
-                    tileMode: TileMode.decal,
-                  ),
-                  child: Opacity(
-                    opacity: 0.55,
-                    child: Glass.frostedMesh(context),
-                  ),
-                ),
-              ),
-            panel,
-          ],
-        ),
-      );
-      if (margin != null) {
-        return Padding(padding: margin!, child: clipped);
-      }
-      return clipped;
-    }
-
-    if (radius != BorderRadius.zero) {
-      panel = ClipRRect(
-        borderRadius: radius,
-        clipBehavior: clipBehavior,
-        child: panel,
-      );
-    }
     if (margin != null) {
-      panel = Padding(padding: margin!, child: panel);
+      return Padding(padding: margin!, child: glass);
     }
-    return panel;
+    return glass;
   }
 }
 
-/// Convenience: wrap chrome that already had BlurEffect + translucent surface.
+/// Convenience chrome wrapper (nav / app bars) — premium quality.
 class GlassChrome extends StatelessWidget {
   const GlassChrome({
     super.key,
@@ -313,15 +256,17 @@ class GlassChrome extends StatelessWidget {
     }
     return GlassSurface(
       borderRadius: borderRadius,
-      color: color ?? Glass.fillColor(context),
+      color: color,
       elevationShadow: false,
-      showMesh: false,
+      quality: GlassQuality.premium,
       child: child,
     );
   }
 }
 
-/// Theme-aware glass card for settings lists (replaces opaque Material Card).
+/// Theme-aware glass card for settings lists.
+/// Uses package [GlassContainer.card] at [GlassQuality.minimal] so scrolling
+/// Cloud Sync / settings lists stay smooth on mid Android.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
@@ -339,12 +284,25 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final radius = BorderRadius.circular(14);
-    final body = GlassSurface(
-      borderRadius: radius,
+
+    if (!Glass.shouldBlur(context)) {
+      return Card(
+        margin: margin ?? const EdgeInsets.only(bottom: 8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: padding == null ? child : Padding(padding: padding!, child: child),
+        ),
+      );
+    }
+
+    Widget body = GlassContainer.card(
+      useOwnLayer: true,
+      quality: GlassQuality.minimal,
+      settings: Glass.settingsFor(context),
+      padding: padding ?? EdgeInsets.zero,
       margin: margin ?? const EdgeInsets.only(bottom: 8),
-      padding: padding,
-      elevationShadow: true,
-      showMesh: true,
+      shape: LiquidRoundedSuperellipse(borderRadius: 14),
       child: Material(
         color: Colors.transparent,
         child: onTap == null

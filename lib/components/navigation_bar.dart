@@ -271,7 +271,7 @@ class NaviPaneState extends State<NaviPane>
         width: double.infinity,
         decoration: glassOn
             ? BoxDecoration(
-                color: Glass.fillColor(context),
+                color: Colors.transparent,
                 border: Border(
                   bottom: BorderSide(
                     color: Theme.of(context).colorScheme.outlineVariant
@@ -300,7 +300,7 @@ class NaviPaneState extends State<NaviPane>
         ),
     );
     if (glassOn) {
-      return BlurEffect(blur: Glass.blurSigma(context), child: bar);
+      return GlassChrome(child: bar);
     }
     return Material(child: bar);
   }
@@ -310,7 +310,7 @@ class NaviPaneState extends State<NaviPane>
     Widget bar = Container(
         height: _kBottomBarHeight,
         decoration: BoxDecoration(
-          color: glassOn ? Glass.fillColor(context) : null,
+          color: glassOn ? Colors.transparent : null,
           border: Border(
             top: BorderSide(
               color: Theme.of(context).colorScheme.outlineVariant
@@ -339,7 +339,7 @@ class NaviPaneState extends State<NaviPane>
         textStyle: Theme.of(context).textTheme.labelSmall,
         elevation: 0,
         color: Colors.transparent,
-        child: BlurEffect(blur: Glass.blurSigma(context), child: bar),
+        child: GlassChrome(child: bar),
       );
     }
     return Material(
@@ -360,7 +360,7 @@ class NaviPaneState extends State<NaviPane>
         height: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: paddingHorizontal),
         decoration: BoxDecoration(
-          color: glassOn ? Glass.fillColor(context) : null,
+          color: glassOn ? Colors.transparent : null,
           border: Border(
             right: BorderSide(
               color: Theme.of(context).colorScheme.outlineVariant
@@ -399,8 +399,8 @@ class NaviPaneState extends State<NaviPane>
         ),
     );
     if (glassOn) {
-      // Desktop (esp. macOS) acrylic sidebar
-      return BlurEffect(blur: Glass.blurSigma(context), child: side);
+      // Desktop (esp. macOS) + Android: package premium glass sidebar
+      return GlassChrome(child: side);
     }
     return Material(child: side);
   }

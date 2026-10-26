@@ -1,30 +1,39 @@
-# Venera Glass fork — 1.7.2+172
+# Venera Glass fork — 1.7.3+173
 
 Fork of archived [venera-app/venera](https://github.com/venera-app/venera) (last upstream v1.6.3).
 GPL-3.0. No bundled comic sources.
 
-## 1.7.2 fixes (white screen · real Android glass · 中文 · contrast)
+## 1.7.3 — real liquid glass (`liquid_glass_widgets`)
 
-### 保存配置白屏 / Save profile white screen (CRITICAL)
-- Root cause: profile editor called `context.pop()` on the **nested** Navigator inside `PopUpWidget`, which either threw or popped the only page → blank sheet and the parent never received the saved profile.
-- Fix: `popPopUp()` always pops the root `PopUpWidget` route; Save / Back / Save & Sync all use it. Persist wrapped in try/catch; `saveData(false)` while editing so auto-upload cannot race the UI.
+Prior DIY `BackdropFilter` + mesh-on-opaque-scaffold could never look like glass.
+This release integrates **[`liquid_glass_widgets` ^1.15.0](https://pub.dev/packages/liquid_glass_widgets)** (iOS 26/27-style custom fragment shaders; works on Android Impeller).
 
-### Android 液态玻璃 / Real frosted glass
-- Opacity tweaks alone were not enough — Cloud Sync used opaque `Card`s and the sheet had little to blur.
-- `GlassSurface` now paints a frosted **gradient mesh** under a strong BackdropFilter (σ≈48 on Android) plus specular fill gradient, so frost is visible even on Impeller.
-- Cloud Sync profile tiles / tips use `GlassCard`; pop-up barrier lightened; nested routes stay opaque to avoid blank glass holes.
-- Theme-aware fills (`surfaceContainerLowest` / `High`) so light mode is not dark-chrome-on-light-cards.
+### Package APIs used
+- `LiquidGlassWidgets.initialize()` + `LiquidGlassWidgets.wrap(adaptiveQuality: true, brightnessResolver: Theme.maybeBrightnessOf, …)`
+- `AdaptiveGlass` (chrome via our `GlassSurface` / `GlassChrome`)
+- `GlassContainer.card` (Cloud Sync / settings cards via our `GlassCard`)
+- `LiquidGlassSettings.ios27Light` / `ios27Dark`
+- Soft aurora `GlassWallpaper` behind transparent scaffolds so refraction has content to sample
 
-### 中文 / Localization
-- All Cloud Sync strings (云同步、配置文件、添加配置、同步模式、智能、手动、自动故障转移、保存并同步、使用中…) added to `zh_CN` / `zh_TW`.
+### Quality strategy (性能优先 · mid Android)
+| Surface | Quality |
+|---|---|
+| Nav / app / side bars | `GlassQuality.premium` (adaptive may downgrade) |
+| Pop-up sheets | `GlassQuality.standard` |
+| Cloud Sync profile rows / list cards | `GlassQuality.minimal` (shader-free frost; keeps scroll smooth) |
+
+`adaptiveQuality: true` benchmarks the device and degrades under thermal/GPU pressure.
+`liquidGlass` setting OFF (or high-contrast / bold-text) restores solid Material.
+
+### Also kept from 1.7.2
+- Cloud Sync save white-screen fix (`popPopUp`)
+- Multi-profile smart sync · Alist `/dav` fix · 中文文案
 
 ### 中文摘要
-- 修复「添加同步配置 → 保存」白屏无法保存。
-- Android 真正可见的磨砂液态玻璃（模糊 + 渐变网格），云同步页卡片也走玻璃。
-- 云同步界面全文中文化；明暗对比与主题一致。
+- 接入真正的开源液态玻璃包 `liquid_glass_widgets`（着色器折射，非假半透明卡片）。
+- 导航栏用高级质量，列表卡片用 minimal，保证中端安卓流畅。
+- 关闭「液态玻璃」开关即恢复实色 Material。
 
-## Prior: 1.7.1
-Android glass opacity, Alist `/dav` 404, multi-profile smart sync.
-
-## Liquid Glass UI (default ON)
-Toggle: Settings → Appearance → Liquid Glass.
+## Prior
+- 1.7.2 — save white screen · zh · DIY glass attempt
+- 1.7.1 — Alist 404 · multi-profile smart sync

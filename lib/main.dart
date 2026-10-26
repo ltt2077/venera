@@ -16,6 +16,7 @@ import 'foundation/app.dart';
 import 'foundation/appdata.dart';
 import 'headless.dart';
 import 'init.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 void main(List<String> args) {
   if (args.contains('--headless')) {
@@ -27,7 +28,22 @@ void main(List<String> args) {
     runZonedGuarded(() async {
       WidgetsFlutterBinding.ensureInitialized();
       await init();
-      runApp(const MyApp());
+      await LiquidGlassWidgets.initialize(
+        enablePerformanceMonitor: false,
+      );
+      runApp(
+        LiquidGlassWidgets.wrap(
+          adaptiveQuality: true,
+          respectSystemAccessibility: true,
+          brightnessResolver: Theme.maybeBrightnessOf,
+          theme: GlassThemeData.simple(
+            blur: 10,
+            thickness: 28,
+            quality: GlassQuality.standard,
+          ),
+          child: const MyApp(),
+        ),
+      );
       if (App.isDesktop) {
         await windowManager.ensureInitialized();
         windowManager.waitUntilReadyToShow().then((_) async {
@@ -162,6 +178,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         'sans-serif'
       ];
     }
+    final glassOn = (appdata.settings['liquidGlass'] ?? true) == true;
     return ThemeData(
       colorScheme: SeedColorScheme.fromSeeds(
         primaryKey: primary,
@@ -172,6 +189,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       ),
       fontFamily: font,
       fontFamilyFallback: fallback,
+      // Let refractive glass sample the aurora wallpaper behind pages.
+      scaffoldBackgroundColor: glassOn ? Colors.transparent : null,
+      canvasColor: glassOn ? Colors.transparent : null,
     );
   }
 
@@ -278,9 +298,20 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                 ),
               );
             }
+            final glassOn = Glass.enabled;
+            Widget body = widget;
+            if (glassOn) {
+              body = Stack(
+                fit: StackFit.expand,
+                children: [
+                  const GlassWallpaper(),
+                  body,
+                ],
+              );
+            }
             return _SystemUiProvider(Material(
-              color: App.isLinux ? Colors.transparent : null,
-              child: widget,
+              color: (App.isLinux || glassOn) ? Colors.transparent : null,
+              child: body,
             ));
           }
           throw ('widget is null');

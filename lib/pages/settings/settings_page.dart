@@ -78,7 +78,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final glassOn = Glass.shouldBlur(context);
     return Material(
+      color: glassOn ? Colors.transparent : null,
       child: buildBody(),
     );
   }
@@ -144,7 +146,9 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget buildLeft() {
+    final glassOn = Glass.shouldBlur(context);
     return Material(
+      color: glassOn ? Colors.transparent : null,
       child: Column(
         children: [
           SizedBox(
@@ -277,7 +281,9 @@ class _SettingsDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final glassOn = Glass.shouldBlur(context);
     return Material(
+      color: glassOn ? Colors.transparent : null,
       child: _buildPage(),
     );
   }
