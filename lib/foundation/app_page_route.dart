@@ -27,9 +27,10 @@ class AppPageRoute<T> extends PageRoute<T> with _AppRouteTransitionMixin{
   /// Builds the primary contents of the route.
   final WidgetBuilder builder;
 
-  /// When liquid glass is on, routes must be translucent so the aurora
-  /// wallpaper (and the page underneath) stay visible during push/pop —
-  /// opaque Material/PredictiveBack surfaces were causing the white flash.
+  /// Liquid-glass chrome is translucent, but pushed *routes* stay opaque so
+  /// the previous page is fully covered (no stacked UI / residue). White flash
+  /// is avoided with a theme-colored opaque page fill + Slide transition
+  /// (not PredictiveBack) when glass is on — never with opaque:false.
   static bool get _glassOn {
     final v = appdata.settings['liquidGlass'];
     if (v is bool) return v;
@@ -37,7 +38,7 @@ class AppPageRoute<T> extends PageRoute<T> with _AppRouteTransitionMixin{
   }
 
   @override
-  bool get opaque => !_glassOn;
+  bool get opaque => true;
 
   String? label;
 
@@ -104,11 +105,17 @@ mixin _AppRouteTransitionMixin<T> on PageRoute<T> {
       result = buildContent(context);
     }
 
-    // Keep page chrome transparent under liquid glass so push animations do
-    // not paint a solid white/surface slab over the wallpaper.
+    // Opaque theme-colored root: covers the previous route completely.
+    // Glass chrome (app bars / dock) can still be translucent *on top* of this.
+    // Avoids white flash by matching ColorScheme.surface (not Colors.white /
+    // not fully transparent).
     if (AppPageRoute._glassOn) {
+      final fill = Theme.of(context).colorScheme.surface;
       result = Material(
-        type: MaterialType.transparency,
+        type: MaterialType.canvas,
+        color: fill,
+        elevation: 0,
+        shadowColor: Colors.transparent,
         child: result,
       );
     }
@@ -137,9 +144,9 @@ mixin _AppRouteTransitionMixin<T> on PageRoute<T> {
 
   @override
   Widget buildTransitions(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation, Widget child) {
-    // PredictiveBack paints an opaque colorScheme.surface fill — flashes white
-    // over transparent glass scaffolds. Always use our slide transition when
-    // liquid glass is enabled (and on non-Android platforms).
+    // PredictiveBack can flash an off-theme fill during the gesture. Prefer our
+    // Slide transition when liquid glass is on (and on non-Android platforms).
+    // Routes remain opaque; the slide page uses theme surface as its fill.
     final PageTransitionsBuilder builder =
         (App.isAndroid && !AppPageRoute._glassOn)
             ? PredictiveBackPageTransitionsBuilder()
@@ -497,17 +504,26 @@ class SlidePageTransitionBuilder extends PageTransitionsBuilder {
           begin: Offset.zero,
           end: const Offset(-0.4, 0),
         ).animate(secondaryCurve),
-        child: PhysicalModel(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.zero,
-          clipBehavior: Clip.hardEdge,
-          elevation: AppPageRoute._glassOn ? 0 : 6,
-          shadowColor: Colors.transparent,
-          child: Material(
-            type: MaterialType.transparency,
-            color: Colors.transparent,
-            child: child,
-          ),
+        child: Builder(
+          builder: (context) {
+            // Theme surface (not white, not transparent) so the sliding page
+            // covers the outgoing route without a white flash or bleed-through.
+            final fill = Theme.of(context).colorScheme.surface;
+            return PhysicalModel(
+              color: fill,
+              borderRadius: BorderRadius.zero,
+              clipBehavior: Clip.hardEdge,
+              elevation: AppPageRoute._glassOn ? 0 : 6,
+              shadowColor: Colors.transparent,
+              child: Material(
+                type: MaterialType.canvas,
+                color: fill,
+                elevation: 0,
+                shadowColor: Colors.transparent,
+                child: child,
+              ),
+            );
+          },
         ),
       ),
     );

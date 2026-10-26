@@ -244,7 +244,9 @@ class _HistoryPageState extends State<HistoryPage> {
         }
       },
       child: Scaffold(
-        backgroundColor: Glass.enabled ? Colors.transparent : null,
+        // Opaque route root already fills with theme surface; keep scaffold
+        // on theme surface too so list content never shows the page underneath.
+        backgroundColor: Theme.of(context).colorScheme.surface,
         body: SmoothCustomScrollView(
           slivers: [
             SliverAppbar(

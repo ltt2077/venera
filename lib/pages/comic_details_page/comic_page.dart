@@ -175,6 +175,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   @override
   Widget buildContent(BuildContext context, ComicDetails data) {
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surface,
       floatingActionButton: showFAB
           ? FloatingActionButton(
               onPressed: () {

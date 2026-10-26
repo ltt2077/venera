@@ -1,31 +1,32 @@
-# Venera Glass fork — 1.7.5+175
+# Venera Glass fork — 1.7.6+176
 
 Fork of archived [venera-app/venera](https://github.com/venera-app/venera) (last upstream v1.6.3).
 GPL-3.0. No bundled comic sources.
 
-## 1.7.5 — Secondary-page white flash fix + tunable liquid glass
+## 1.7.6 — Fix secondary-page overlap / old-page residue
 
-User feedback on 1.7.4: bottom-tab switches were fine, but opening **History / Settings subpages** (Navigator.push) still flashed white. Also asked for **user-tunable liquid glass parameters**.
+Critical regression from 1.7.5: opening **History / comic details** showed the home list, tags, and bottom nav bleeding through under the new page (stacked UI).
 
-### Push / pop white flash
-- Root cause: Android `PredictiveBackPageTransitionsBuilder` paints opaque `colorScheme.surface`, and `SlidePageTransitionBuilder` wrapped pages in a default `Material` fill.
-- When liquid glass is ON: routes are **`opaque: false`**, PredictiveBack is skipped, slide transition uses **transparent Material**, page built with `MaterialType.transparency`.
-- History scaffold uses transparent background under glass.
+### Root cause
+`AppPageRoute.opaque = false` + transparent Material (added to kill white flash) left the previous route in the paint tree. Flutter kept drawing MainPage underneath translucent scaffolds.
 
-### 液态玻璃参数 (Appearance)
-When Liquid Glass is ON, a new section exposes live knobs (persisted in `appdata.settings`):
-- Quality preset: 自适应 / 高 / 标准 / 省电
-- Blur · Frost · Tint opacity · Thickness · Refractive index · Specular
-- Dock side margin · Dock corner radius
-- Reset to defaults
+### Fix (opaque routes again — no see-through pages)
+- **`AppPageRoute.opaque` restored to `true`** — previous route is fully covered.
+- Pushed pages wrap in **theme `ColorScheme.surface` Material** (not `Colors.white`, not fully transparent) so transitions stay on-theme without a white flash.
+- `SlidePageTransitionBuilder` uses the same opaque surface fill; PredictiveBack stays off when liquid glass is on.
+- History / comic-detail scaffolds use solid theme surface; **glass chrome** (app bars, floating BiliPai dock, cards, knobs) stays translucent *on top* of the opaque page root.
+- Wallpaper remains under MainPage only — not visible through pushed routes.
 
-Wired through `Glass.settingsFor` / `Glass.qualityFor` / floating `GlassTabBar.bottom`. `LiquidGlassWidgets.wrap` rebuilds with the chosen adaptive/fixed quality.
+### Kept from 1.7.5
+- Tunable 液态玻璃参数 · floating BiliPai dock · IndexedStack tabs · cloud sync / zh
 
 ### 中文摘要
-- 修历史／设置等**下一级页面**推入时的白闪（底栏切换本来就正常）。
-- 外观 → **液态玻璃参数**：可调模糊／着色／折射／高光／底栏边距圆角／画质档，支持重置。
+- 修「点进历史／详情后旧页面残留重叠」：路由改回不透明，用主题色实底盖住下层。
+- 白闪用主题色实底滑动过渡压掉，不再靠透明路由。
+- 液态玻璃参数、悬浮底栏、云同步等保留。
 
 ## Prior
+- 1.7.5 — Secondary-page white flash + tunable liquid glass
 - 1.7.4 — BiliPai floating liquid dock + tab flash fix
 - 1.7.3 — real `liquid_glass_widgets` shaders + adaptive quality
 - 1.7.2 — Cloud Sync save white screen · zh · DIY glass attempt
