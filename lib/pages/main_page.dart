@@ -93,14 +93,14 @@ class _MainPageState extends State<MainPage> {
         });
       },
       paneActions: [
-        if(index != 0)
-          PaneActionEntry(
-            icon: Icons.search,
-            label: "Search".tl,
-            onTap: () {
-              to(() => const SearchPage(), preventDuplicate: true);
-            },
-          ),
+        // Always show search — avoids top-bar layout jump (misalignment) on tab switch.
+        PaneActionEntry(
+          icon: Icons.search,
+          label: "Search".tl,
+          onTap: () {
+            to(() => const SearchPage(), preventDuplicate: true);
+          },
+        ),
         PaneActionEntry(
           icon: Icons.settings,
           label: "Settings".tl,

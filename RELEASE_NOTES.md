@@ -1,39 +1,30 @@
-# Venera Glass fork — 1.7.3+173
+# Venera Glass fork — 1.7.4+174
 
 Fork of archived [venera-app/venera](https://github.com/venera-app/venera) (last upstream v1.6.3).
 GPL-3.0. No bundled comic sources.
 
-## 1.7.3 — real liquid glass (`liquid_glass_widgets`)
+## 1.7.4 — BiliPai-inspired floating liquid dock + tab-switch flash fix
 
-Prior DIY `BackdropFilter` + mesh-on-opaque-scaffold could never look like glass.
-This release integrates **[`liquid_glass_widgets` ^1.15.0](https://pub.dev/packages/liquid_glass_widgets)** (iOS 26/27-style custom fragment shaders; works on Android Impeller).
+User feedback on 1.7.3: bottom nav still looked like a **full-width frosted strip**, and quick tab switches flashed white / briefly misaligned.
 
-### Package APIs used
-- `LiquidGlassWidgets.initialize()` + `LiquidGlassWidgets.wrap(adaptiveQuality: true, brightnessResolver: Theme.maybeBrightnessOf, …)`
-- `AdaptiveGlass` (chrome via our `GlassSurface` / `GlassChrome`)
-- `GlassContainer.card` (Cloud Sync / settings cards via our `GlassCard`)
-- `LiquidGlassSettings.ios27Light` / `ios27Dark`
-- Soft aurora `GlassWallpaper` behind transparent scaffolds so refraction has content to sample
+### Floating liquid-glass bottom dock
+Inspired by third-party B站 client [BiliPai](https://github.com/jay3-yy/BiliPai) (Compose + Haze / AndroidLiquidGlass floating capsule).
 
-### Quality strategy (性能优先 · mid Android)
-| Surface | Quality |
-|---|---|
-| Nav / app / side bars | `GlassQuality.premium` (adaptive may downgrade) |
-| Pop-up sheets | `GlassQuality.standard` |
-| Cloud Sync profile rows / list cards | `GlassQuality.minimal` (shader-free frost; keeps scroll smooth) |
+- Replaced edge-to-edge blur strip with **`GlassTabBar.bottom`** from [`liquid_glass_widgets`](https://pub.dev/packages/liquid_glass_widgets) — floating pill with horizontal margin, soft elevation over content, jelly/spring selection indicator, refraction + specular highlight.
+- Content **extends under** the dock (`Stack` overlay + stable `MediaQuery` bottom inset) so lists scroll behind the capsule.
+- Dock uses `GlassQuality.premium` (track `standard` for GPU savings). `liquidGlass` OFF → solid Material floating capsule fallback.
 
-`adaptiveQuality: true` benchmarks the device and degrades under thermal/GPU pressure.
-`liquidGlass` setting OFF (or high-contrast / bold-text) restores solid Material.
-
-### Also kept from 1.7.2
-- Cloud Sync save white-screen fix (`popPopUp`)
-- Multi-profile smart sync · Alist `/dav` fix · 中文文案
+### Tab-switch white flash / misalignment
+- Replaced `AnimatedSwitcher` with **`IndexedStack`** — tabs stay alive; no fade that reveals opaque white chrome mid-transition.
+- Top actions always include Search + Settings so the app bar no longer jumps when leaving Home.
+- Bottom inset reserved consistently every frame (no mid-frame padding change).
 
 ### 中文摘要
-- 接入真正的开源液态玻璃包 `liquid_glass_widgets`（着色器折射，非假半透明卡片）。
-- 导航栏用高级质量，列表卡片用 minimal，保证中端安卓流畅。
-- 关闭「液态玻璃」开关即恢复实色 Material。
+- 底栏改为 BiliPai 风格**悬浮液态玻璃胶囊**（`GlassTabBar.bottom`），不再是贴边磨砂条。
+- 切页白闪／短暂错位：页面保活 + 顶栏图标不再忽隐忽现。
+- 关闭「液态玻璃」仍为悬浮实色胶囊底栏。
 
 ## Prior
-- 1.7.2 — save white screen · zh · DIY glass attempt
+- 1.7.3 — real `liquid_glass_widgets` shaders + adaptive quality
+- 1.7.2 — Cloud Sync save white screen · zh · DIY glass attempt
 - 1.7.1 — Alist 404 · multi-profile smart sync

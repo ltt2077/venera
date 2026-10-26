@@ -92,7 +92,11 @@ class NaviPaneState extends State<NaviPane>
     _naviItemTapListeners.remove(listener);
   }
 
-  static const _kBottomBarHeight = 58.0;
+
+  /// Floating liquid-glass dock (GlassTabBar.bottom) metrics — BiliPai-like.
+  static const _kFloatingBarHeight = 56.0;
+  static const _kFloatingBarVertPad = 10.0;
+  static const _kFloatingBarHPad = 18.0;
 
   static const _kFoldedSideBarWidth = 72.0;
 
@@ -100,8 +104,14 @@ class NaviPaneState extends State<NaviPane>
 
   static const _kTopBarHeight = 48.0;
 
-  double get bottomBarHeight =>
-      _kBottomBarHeight + MediaQuery.of(context).padding.bottom;
+  /// Total bottom inset reserved so content can scroll under the floating dock.
+  double get bottomBarHeight {
+    final safe = MediaQuery.of(context).padding.bottom;
+    if (Glass.shouldBlur(context)) {
+      return _kFloatingBarHeight + _kFloatingBarVertPad * 2 + safe;
+    }
+    return _kFloatingBarHeight + 8 + safe;
+  }
 
   void onNavigatorStateChange() {
     onRebuild(context);
@@ -307,45 +317,75 @@ class NaviPaneState extends State<NaviPane>
 
   Widget buildBottom() {
     final glassOn = Glass.shouldBlur(context);
-    Widget bar = Container(
-        height: _kBottomBarHeight,
-        decoration: BoxDecoration(
-          color: glassOn ? Colors.transparent : null,
-          border: Border(
-            top: BorderSide(
-              color: Theme.of(context).colorScheme.outlineVariant
-                  .toOpacity(glassOn ? 0.45 : 1),
-              width: glassOn ? 0.6 : 1,
-            ),
-          ),
-        ),
-        child: Row(
-          children: List<Widget>.generate(widget.paneItems.length, (index) {
-            return Expanded(
-              child: _SingleBottomNaviWidget(
-                enabled: currentPage == index,
-                entry: widget.paneItems[index],
-                onTap: () {
-                  updatePage(index);
-                },
-                key: ValueKey(index),
-              ),
-            );
-          }),
-        ),
-    );
+    final safeBottom = MediaQuery.of(context).padding.bottom;
+    final scheme = Theme.of(context).colorScheme;
+
     if (glassOn) {
-      return Material(
-        textStyle: Theme.of(context).textTheme.labelSmall,
-        elevation: 0,
-        color: Colors.transparent,
-        child: GlassChrome(child: bar),
+      // BiliPai / iOS-style floating liquid-glass capsule dock.
+      // GlassTabBar.bottom: horizontal margin, jelly indicator, refraction.
+      return Padding(
+        padding: EdgeInsets.only(bottom: safeBottom),
+        child: GlassTabBar.bottom(
+          tabs: [
+            for (final item in widget.paneItems)
+              GlassTab(
+                icon: Icon(item.icon),
+                activeIcon: Icon(item.activeIcon),
+                label: item.label,
+                semanticLabel: item.label,
+              ),
+          ],
+          selectedIndex: currentPage,
+          onTabSelected: updatePage,
+          horizontalPadding: _kFloatingBarHPad,
+          verticalPadding: _kFloatingBarVertPad,
+          barHeight: _kFloatingBarHeight,
+          barBorderRadius: 28,
+          quality: GlassQuality.premium,
+          backgroundQuality: GlassQuality.standard,
+          settings: Glass.settingsFor(context),
+          showIndicator: true,
+          magnification: 1.12,
+          indicatorPinchStrength: 0.45,
+          glowOpacity: 0.35,
+          selectedIconColor: scheme.primary,
+          selectedLabelColor: scheme.primary,
+          unselectedIconColor: scheme.onSurface.toOpacity(0.62),
+          unselectedLabelColor: scheme.onSurface.toOpacity(0.55),
+          labelFontSize: 10,
+          iconSize: 22,
+        ),
       );
     }
-    return Material(
-      textStyle: Theme.of(context).textTheme.labelSmall,
-      elevation: 0,
-      child: bar,
+
+    // Solid Material floating capsule when liquid glass is OFF.
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 0, 16, 8 + safeBottom),
+      child: Material(
+        elevation: 10,
+        shadowColor: Colors.black.toOpacity(0.28),
+        borderRadius: BorderRadius.circular(28),
+        color: scheme.surfaceContainerHigh,
+        clipBehavior: Clip.antiAlias,
+        textStyle: Theme.of(context).textTheme.labelSmall,
+        child: SizedBox(
+          height: _kFloatingBarHeight,
+          child: Row(
+            children: List<Widget>.generate(widget.paneItems.length, (index) {
+              return Expanded(
+                child: _SingleBottomNaviWidget(
+                  enabled: currentPage == index,
+                  entry: widget.paneItems[index],
+                  onTap: () {
+                    updatePage(index);
+                  },
+                  key: ValueKey(index),
+                ),
+              );
+            }),
+          ),
+        ),
+      ),
     );
   }
 
@@ -703,22 +743,51 @@ class _NaviMainViewState extends State<_NaviMainView> {
 
   @override
   Widget build(BuildContext context) {
-    var shouldShowAppBar = state.controller.value < 2;
-    return Column(
-      children: [
-        if (shouldShowAppBar) state.buildTop().paddingTop(context.padding.top),
-        Expanded(
-          child: MediaQuery.removePadding(
-            context: context,
-            removeTop: shouldShowAppBar,
-            child: AnimatedSwitcher(
-              duration: _fastAnimationDuration,
-              child: state.buildMainViewContent(),
-            ),
+    final shouldShowAppBar = state.controller.value < 2;
+    final mq = MediaQuery.of(context);
+    final dockInset = shouldShowAppBar ? state.bottomBarHeight : mq.padding.bottom;
+
+    // Keep every tab alive — no AnimatedSwitcher fade (white flash) / layout jump.
+    Widget body = MediaQuery(
+      data: mq.copyWith(
+        padding: mq.padding.copyWith(
+          top: shouldShowAppBar ? 0 : mq.padding.top,
+          bottom: dockInset,
+        ),
+      ),
+      child: IndexedStack(
+        index: state.currentPage,
+        sizing: StackFit.expand,
+        children: List<Widget>.generate(
+          state.widget.paneItems.length,
+          (i) => KeyedSubtree(
+            key: ValueKey('navi-tab-$i'),
+            child: state.widget.pageBuilder(i),
           ),
         ),
-        if (shouldShowAppBar)
-          state.buildBottom().paddingBottom(context.padding.bottom),
+      ),
+    );
+
+    if (!shouldShowAppBar) {
+      return body;
+    }
+
+    // Content extends under the floating dock; dock overlays with soft elevation.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Column(
+          children: [
+            state.buildTop().paddingTop(mq.padding.top),
+            Expanded(child: body),
+          ],
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: state.buildBottom(),
+        ),
       ],
     );
   }
