@@ -28,7 +28,9 @@ class Glass {
     if (App.isIOS) return 28;
     if (App.isMacOS) return 40; // desktop acrylic
     if (App.isWindows || App.isLinux) return 36;
-    return 24; // Android Material glass
+    // Android: higher sigma so BackdropFilter is obviously frosted
+    // (Impeller supports blur; previous σ=24 + 0.78 fill looked opaque).
+    return 32;
   }
 
   static double fillOpacity(BuildContext context) {
@@ -37,7 +39,8 @@ class Glass {
     if (App.isIOS) return dark ? 0.55 : 0.62;
     if (App.isMacOS) return dark ? 0.48 : 0.58; // frosted title/sidebar
     if (App.isWindows || App.isLinux) return dark ? 0.52 : 0.64;
-    return dark ? 0.72 : 0.78; // Android slightly denser
+    // Android: lower fill so blur + content behind chrome show through.
+    return dark ? 0.42 : 0.52;
   }
 
   static Color fillColor(BuildContext context, {Color? base}) {

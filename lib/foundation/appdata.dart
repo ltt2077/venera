@@ -90,6 +90,13 @@ class Appdata with Init {
     "authorizationRequired",
     "customImageProcessing",
     "webdav",
+    "cloudProvider",
+    "cloudConfig",
+    "cloudProfiles",
+    "cloudDefaultProfileId",
+    "cloudActiveProfileId",
+    "cloudAutoFailover",
+    "cloudSyncMode",
     "disableSyncFields",
     "deviceId",
   ];
@@ -177,8 +184,13 @@ class Settings with ChangeNotifier {
     'color': 'system', // red, pink, purple, green, orange, blue
     'theme_mode': 'system', // light, dark, system
     'liquidGlass': true, // frosted / liquid-glass chrome (default ON)
-    'cloudProvider': 'webdav', // webdav | alist | quark
-    'cloudConfig': <String, dynamic>{}, // provider-specific fields
+    'cloudProvider': 'webdav', // legacy single-provider (migrated to profiles)
+    'cloudConfig': <String, dynamic>{}, // legacy config (migrated to profiles)
+    'cloudProfiles': <dynamic>[], // list of named sync profiles
+    'cloudDefaultProfileId': null,
+    'cloudActiveProfileId': null,
+    'cloudAutoFailover': true,
+    'cloudSyncMode': 'smart', // smart | upload | download | manual
     'newFavoriteAddTo': 'end', // start, end
     'moveFavoriteAfterRead': 'none', // none, end, start
     'proxy': 'system', // direct, system, proxy string

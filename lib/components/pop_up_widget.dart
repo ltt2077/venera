@@ -19,32 +19,50 @@ class PopUpWidget<T> extends PopupRoute<T> {
       Animation<double> secondaryAnimation) {
     var height = MediaQuery.of(context).size.height * 0.9;
     bool showPopUp = MediaQuery.of(context).size.width > 500;
-    Widget body = PopupIndicatorWidget(
-      child: Container(
-        decoration: showPopUp
-            ? BoxDecoration(
-                borderRadius: BorderRadius.all(Radius.circular(12)),
-                boxShadow: context.brightness == ui.Brightness.dark ? [
-                  BoxShadow(
-                    color: Colors.white.withAlpha(50),
-                    blurRadius: 10,
-                    offset: Offset(0, 2),
-                  ),
-                ] : null,
-              )
-            : null,
-        clipBehavior: showPopUp ? Clip.antiAlias : Clip.none,
-        width: showPopUp ? 500 : double.infinity,
-        height: showPopUp ? height : double.infinity,
-        child: ClipRect(
-          child: Navigator(
-            onGenerateRoute: (settings) => MaterialPageRoute(
-              builder: (context) => widget,
-            ),
-          ),
-        ),
+    final glassOn = Glass.shouldBlur(context);
+    Widget page = Navigator(
+      onGenerateRoute: (settings) => PageRouteBuilder(
+        settings: settings,
+        opaque: !glassOn,
+        pageBuilder: (context, animation, secondaryAnimation) => widget,
       ),
     );
+    Widget sheet = Container(
+      decoration: showPopUp
+          ? BoxDecoration(
+              borderRadius: const BorderRadius.all(Radius.circular(12)),
+              boxShadow: context.brightness == ui.Brightness.dark
+                  ? [
+                      BoxShadow(
+                        color: Colors.white.withAlpha(50),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : [
+                      BoxShadow(
+                        color: Colors.black.toOpacity(0.12),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+            )
+          : null,
+      clipBehavior: showPopUp ? Clip.antiAlias : Clip.none,
+      width: showPopUp ? 500 : double.infinity,
+      height: showPopUp ? height : double.infinity,
+      child: glassOn
+          ? GlassSurface(
+              borderRadius: showPopUp
+                  ? const BorderRadius.all(Radius.circular(12))
+                  : BorderRadius.zero,
+              elevationShadow: false,
+              opacity: App.isAndroid ? 0.55 : null,
+              child: page,
+            )
+          : Material(child: page),
+    );
+    Widget body = PopupIndicatorWidget(child: sheet);
     if (App.isIOS) {
       body = IOSBackGestureDetector(
         enabledCallback: () => true,
@@ -114,17 +132,28 @@ class _PopUpWidgetScaffoldState extends State<PopUpWidgetScaffold> {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      child: Column(
-        children: [
-          Container(
+    final glassOn = Glass.shouldBlur(context);
+    final header = Container(
             height: 56 + context.padding.top,
             padding: EdgeInsets.only(top: context.padding.top),
             width: double.infinity,
             decoration: BoxDecoration(
-              color: top
-                  ? null
-                  : Theme.of(context).colorScheme.surfaceTint.withAlpha(20),
+              color: glassOn
+                  ? Glass.fillColor(context)
+                  : (top
+                      ? null
+                      : Theme.of(context).colorScheme.surfaceTint.withAlpha(20)),
+              border: glassOn
+                  ? Border(
+                      bottom: BorderSide(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outlineVariant
+                            .toOpacity(0.4),
+                        width: 0.6,
+                      ),
+                    )
+                  : null,
             ),
             child: Row(
               children: [
@@ -152,7 +181,12 @@ class _PopUpWidgetScaffoldState extends State<PopUpWidgetScaffold> {
                 const SizedBox(width: 8),
               ],
             ),
-          ),
+          );
+    final column = Column(
+        children: [
+          glassOn
+              ? BlurEffect(blur: Glass.blurSigma(context), child: header)
+              : header,
           NotificationListener<ScrollNotification>(
             onNotification: (notifications) {
               if (notifications.metrics.axisDirection != AxisDirection.down) {
@@ -188,7 +222,10 @@ class _PopUpWidgetScaffoldState extends State<PopUpWidgetScaffold> {
                 : 0,
           )
         ],
-      ),
-    );
+      );
+    if (glassOn) {
+      return Material(color: Colors.transparent, child: column);
+    }
+    return Material(child: column);
   }
 }

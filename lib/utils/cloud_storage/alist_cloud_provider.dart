@@ -4,6 +4,7 @@ import 'package:venera/foundation/log.dart';
 import 'package:venera/network/app_dio.dart';
 
 import 'cloud_provider.dart';
+import 'path_utils.dart';
 
 /// Alist / OpenList HTTP API provider.
 /// Works with many Chinese netdrives when the user mounts them in Alist.
@@ -14,12 +15,13 @@ class AlistCloudProvider implements CloudStorageProvider {
     required this.password,
     this.remotePath = '/venera',
     this.token,
-  });
+  }) : endpoint = normalizeAlistEndpoint(baseUrl, remotePath);
 
   final String baseUrl;
   final String username;
   final String password;
   final String remotePath;
+  final AlistEndpoint endpoint;
 
   /// Cached JWT / token from login.
   String? token;
@@ -30,29 +32,27 @@ class AlistCloudProvider implements CloudStorageProvider {
   @override
   String get displayName => 'Alist / OpenList';
 
-  String get _root {
-    var u = baseUrl.trim();
-    if (u.endsWith('/')) u = u.substring(0, u.length - 1);
-    return u;
-  }
+  String get _root => endpoint.apiBase;
 
-  String get _path {
-    var p = remotePath.trim().isEmpty ? '/' : remotePath.trim();
-    if (!p.startsWith('/')) p = '/$p';
-    if (p.endsWith('/') && p.length > 1) {
-      p = p.substring(0, p.length - 1);
-    }
-    return p;
-  }
+  String get _path => endpoint.fsPath;
 
   Dio _dio() {
     return AppDio(BaseOptions(
       baseUrl: _root,
       connectTimeout: const Duration(seconds: 20),
       receiveTimeout: const Duration(seconds: 120),
-      validateStatus: (s) => s != null && s < 500,
+      validateStatus: (s) => s != null && s < 600,
     ));
   }
+
+  Never _fail(String op, Object msg, {int? status}) {
+    final extra = status != null ? ' status=$status' : '';
+    throw CloudProviderException(
+      'Alist $op failed$pathHint$extra: $msg',
+    );
+  }
+
+  String get pathHint => ' (api=$_root path=$_path)';
 
   Future<void> _ensureToken() async {
     if (token != null && token!.isNotEmpty) return;
@@ -63,8 +63,8 @@ class AlistCloudProvider implements CloudStorageProvider {
     });
     final data = res.data;
     if (data is! Map || data['code'] != 200) {
-      final msg = data is Map ? data['message'] : res.statusCode;
-      throw CloudProviderException('Alist login failed: $msg');
+      final msg = data is Map ? data['message'] : 'HTTP ${res.statusCode}';
+      _fail('login', msg, status: res.statusCode);
     }
     token = null;
     final tokenData = data['data'];
@@ -72,41 +72,41 @@ class AlistCloudProvider implements CloudStorageProvider {
       token = tokenData['token']?.toString();
     }
     if (token == null || token!.isEmpty) {
-      throw CloudProviderException('Alist login returned empty token');
+      _fail('login', 'empty token', status: res.statusCode);
     }
     Log.info('CloudSync', 'Alist login ok (token=${redactSecret(token)})');
   }
 
   Map<String, String> get _auth => {'Authorization': token ?? ''};
 
-  @override
-  Future<void> testConnection() async {
-    token = null;
-    await _ensureToken();
-    final dio = _dio();
+  Future<bool> _listOk(Dio dio) async {
     final res = await dio.post(
       '/api/fs/list',
       data: {'path': _path, 'page': 1, 'per_page': 1},
       options: Options(headers: _auth),
     );
     final data = res.data;
-    if (data is! Map || data['code'] != 200) {
-      await dio.post(
-        '/api/fs/mkdir',
-        data: {'path': _path},
-        options: Options(headers: _auth),
-      );
-      final res2 = await dio.post(
-        '/api/fs/list',
-        data: {'path': _path, 'page': 1, 'per_page': 1},
-        options: Options(headers: _auth),
-      );
-      if (res2.data is! Map || res2.data['code'] != 200) {
-        final msg =
-            res2.data is Map ? res2.data['message'] : res2.statusCode;
-        throw CloudProviderException('Alist list failed: $msg');
-      }
-    }
+    return data is Map && data['code'] == 200;
+  }
+
+  @override
+  Future<void> testConnection() async {
+    token = null;
+    await _ensureToken();
+    final dio = _dio();
+    if (await _listOk(dio)) return;
+
+    final mkdir = await dio.post(
+      '/api/fs/mkdir',
+      data: {'path': _path},
+      options: Options(headers: _auth),
+    );
+    if (await _listOk(dio)) return;
+
+    final msg = mkdir.data is Map
+        ? mkdir.data['message']
+        : 'HTTP ${mkdir.statusCode}';
+    _fail('list/mkdir', msg ?? 'not found', status: mkdir.statusCode);
   }
 
   @override
@@ -120,8 +120,8 @@ class AlistCloudProvider implements CloudStorageProvider {
     );
     final data = res.data;
     if (data is! Map || data['code'] != 200) {
-      final msg = data is Map ? data['message'] : res.statusCode;
-      throw CloudProviderException('Alist list failed: $msg');
+      final msg = data is Map ? data['message'] : 'HTTP ${res.statusCode}';
+      _fail('list', msg ?? 'error', status: res.statusCode);
     }
     dynamic content;
     final contentData = data['data'];
@@ -148,7 +148,7 @@ class AlistCloudProvider implements CloudStorageProvider {
   Future<void> uploadFile(String remoteName, Uint8List bytes) async {
     await _ensureToken();
     final dio = _dio();
-    final fullPath = '$_path/$remoteName';
+    final fullPath = joinFsPath(_path, remoteName);
     final res = await dio.put(
       '/api/fs/put',
       data: Stream.fromIterable([bytes]),
@@ -163,8 +163,12 @@ class AlistCloudProvider implements CloudStorageProvider {
     );
     final data = res.data;
     if (data is Map && data['code'] != null && data['code'] != 200) {
-      final msg = data["message"];
-      throw CloudProviderException("Alist upload failed: $msg");
+      _fail('upload $remoteName', data['message'] ?? 'error',
+          status: res.statusCode);
+    }
+    if (res.statusCode != null && res.statusCode! >= 400) {
+      _fail('upload $remoteName', 'HTTP ${res.statusCode}',
+          status: res.statusCode);
     }
   }
 
@@ -172,7 +176,7 @@ class AlistCloudProvider implements CloudStorageProvider {
   Future<Uint8List> downloadFile(String remoteName) async {
     await _ensureToken();
     final dio = _dio();
-    final fullPath = '$_path/$remoteName';
+    final fullPath = joinFsPath(_path, remoteName);
     final meta = await dio.post(
       '/api/fs/get',
       data: {'path': fullPath},
@@ -180,16 +184,24 @@ class AlistCloudProvider implements CloudStorageProvider {
     );
     dynamic rawUrl;
     if (meta.data is Map) {
+      if (meta.data['code'] != null && meta.data['code'] != 200) {
+        _fail('get $remoteName', meta.data['message'] ?? 'error',
+            status: meta.statusCode);
+      }
       final d = meta.data['data'];
       if (d is Map) rawUrl = d['raw_url'];
     }
     if (rawUrl is! String || rawUrl.isEmpty) {
-      throw CloudProviderException('Alist get raw_url failed for $remoteName');
+      _fail('get $remoteName', 'missing raw_url', status: meta.statusCode);
     }
     final fileRes = await dio.get<List<int>>(
       rawUrl,
       options: Options(responseType: ResponseType.bytes),
     );
+    if (fileRes.statusCode != null && fileRes.statusCode! >= 400) {
+      _fail('download $remoteName', 'HTTP ${fileRes.statusCode}',
+          status: fileRes.statusCode);
+    }
     return Uint8List.fromList(fileRes.data ?? const []);
   }
 
@@ -197,7 +209,7 @@ class AlistCloudProvider implements CloudStorageProvider {
   Future<void> deleteFile(String remoteName) async {
     await _ensureToken();
     final dio = _dio();
-    await dio.post(
+    final res = await dio.post(
       '/api/fs/remove',
       data: {
         'dir': _path,
@@ -205,5 +217,11 @@ class AlistCloudProvider implements CloudStorageProvider {
       },
       options: Options(headers: _auth),
     );
+    if (res.data is Map &&
+        res.data['code'] != null &&
+        res.data['code'] != 200) {
+      _fail('delete $remoteName', res.data['message'] ?? 'error',
+          status: res.statusCode);
+    }
   }
 }

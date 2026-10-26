@@ -35,13 +35,17 @@ class BlurEffect extends StatelessWidget {
       }
       return child;
     }
+    // Clip + BackdropFilter. On Android, prefer clamp tile mode — mirror can
+    // look like a solid slab when Impeller samples edge pixels aggressively.
+    final tile = App.isAndroid ? TileMode.clamp : TileMode.mirror;
     return ClipRRect(
       borderRadius: borderRadius ?? BorderRadius.zero,
+      clipBehavior: Clip.antiAlias,
       child: BackdropFilter(
         filter: ui.ImageFilter.blur(
           sigmaX: sigma,
           sigmaY: sigma,
-          tileMode: TileMode.mirror,
+          tileMode: tile,
         ),
         child: child,
       ),
