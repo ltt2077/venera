@@ -385,6 +385,7 @@ class DataSync with ChangeNotifier {
     final localFile = downloadDir.joinFile('data.venera');
     try {
       await localFile.writeAsBytes(bytes);
+      if (_changeGeneration != generation) throw CloudSyncConflictException();
       // The smart direction has already been chosen; an explicit download must
       // also restore equal/older versions instead of reporting a skipped success.
       await restoreAppData(localFile, restoreCloudSettings: false);
@@ -457,6 +458,8 @@ class DataSync with ChangeNotifier {
             );
           }
           return r;
+        } on CloudSyncConflictException {
+          rethrow;
         } catch (e, s) {
           Log.error("Data Sync", e, s);
           return Res<bool>.error(e.toString());

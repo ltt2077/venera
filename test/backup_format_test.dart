@@ -86,7 +86,7 @@ void main() {
       expect(manual['cloudActiveProfileId'], 'quark');
       expect(manual['cloudSyncMode'], 'manual');
       expect(manual.containsKey('deviceId'), false);
-      expect(manual.containsKey('readerMode'), false);
+      expect(manual['readerMode'], 'continuousTopToBottom');
       final sync = settingsForRestore(
         incoming,
         local,

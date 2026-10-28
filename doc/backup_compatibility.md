@@ -52,6 +52,10 @@ backup is removed. Manually named `.venera` files are not pruned.
   inactive Flutter tickers. Existing page transition and glass appearance stay.
 - Debounce automatic sync for two seconds and honor the selected sync mode.
   Settings/source saves no longer unconditionally upload when auto sync is off.
+- Apply custom sync exclusions only to cloud imports; a manual full restore
+  restores those portable settings as well.
+- Pin CI and release workflows to Flutter 3.41.4; the old installer could not
+  resolve the `>=3.41.0` SDK constraint as an exact Flutter version.
 - Generate the filtered sync JSON on export; stop writing a redundant
   `syncdata.json` on every settings save.
 - Sort remote revisions numerically and reuse the remote listing on upload.
@@ -66,7 +70,7 @@ backup is removed. Manually named `.venera` files are not pruned.
 
 ## Validation and remaining limits
 
-`tool/check_backup_core.dart` runs 25 standalone checks against the production
+`tool/check_backup_core.dart` runs 26 standalone checks against the production
 format, restore-policy, upload-retention and SQLite snapshot helpers. Checks
 include actual SQLite WAL commits, a ZIP layout fixture, failed uploads, cleanup
 errors, excluded credentials, old backups, metadata, numeric sorting and sync
@@ -74,7 +78,8 @@ conflicts. These checks passed locally using Dart 3.11.1 in AOT mode.
 
 Flutter regression tests additionally cover lazy mounting, retained tab state
 and inactive tickers. The GitHub workflow runs `flutter test` and analysis of the
-changed libraries. Local full Flutter tooling was blocked when its startup
+changed libraries. Both passed on the first implementation commit; a final
+rerun also covers the manual-restore exclusion fix and workflow version pins. Local full Flutter tooling was blocked when its startup
 attempted a cloud metadata lookup unrelated to this repository; that path was
 stopped. No Android/iOS/macOS/Windows installable build, on-device frame-rate
 measurement, live WebDAV/Alist/Quark transfer, or full original-app UI round trip

@@ -34,9 +34,9 @@ Map<String, dynamic> settingsForRestore(
   Map<String, dynamic> local, {
   required bool restoreCloudSettings,
 }) {
-  final excluded = excludedSyncSettings(
-    (local['disableSyncFields'] ?? '').toString(),
-  );
+  final excluded = restoreCloudSettings
+      ? deviceOnlySettings
+      : excludedSyncSettings((local['disableSyncFields'] ?? '').toString());
   final restored = <String, dynamic>{
     for (final entry in incoming.entries)
       if (!excluded.contains(entry.key) ||

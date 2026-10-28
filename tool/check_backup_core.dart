@@ -116,6 +116,19 @@ Future<void> main() async {
     require(restored['cloudAutoFailover'] == false, 'Failover lost');
     require(!restored.containsKey('deviceId'), 'Device identity overwritten');
   });
+  await check(
+    'manual import restores fields excluded only from cloud sync',
+    () {
+      final restored = settingsForRestore(incoming, {
+        'disableSyncFields': 'readerMode,liquidGlassBlur',
+      }, restoreCloudSettings: true);
+      require(
+        restored['liquidGlassBlur'] == 0.8 &&
+            restored['readerMode'] == 'galleryLeftToRight',
+        'Sync exclusions blocked a full restore',
+      );
+    },
+  );
   await check('cloud import keeps destination credentials', () {
     final restored = settingsForRestore(
       incoming,
