@@ -10,8 +10,8 @@
 - Add backup, retention, database and tab regression checks.
 
 See [backup compatibility audit](doc/backup_compatibility.md) for coverage and
-validation limits. Core checks, Flutter tests and changed-library analysis passed on the first
-implementation commit; final CI rerun pending. Device/package checks remain unverified.
+validation limits. Standalone core checks pass. CI runs Flutter tests and analysis;
+device/package checks remain unverified.
 
 # Venera Glass fork — 1.7.6+176
 
