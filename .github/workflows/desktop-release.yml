@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: desktop-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   FLUTTER_VERSION: '3.41.4'
