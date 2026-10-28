@@ -1,0 +1,196 @@
+name: Publish Apple and Windows packages
+on:
+  workflow_dispatch:
+  push:
+    branches: [glass-cloud]
+    paths:
+      - tool/desktop_release.json
+      - .github/workflows/desktop-release.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: '3.41.4'
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y libsqlite3-dev
+      - run: flutter pub get
+      - run: dart run tool/check_backup_core.dart
+      - run: flutter test
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+  ios:
+    needs: test
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          architecture: arm64
+          cache: true
+      - run: xcodebuild -version
+      - run: rustup show
+      - run: flutter pub get
+      - name: Build iOS with native UIKit glass
+        run: flutter build ios --release --no-codesign
+      - name: Package IPA for user signing
+        run: |
+          python3 - <<'PY'
+          import json, os, plistlib, shutil, subprocess
+          from pathlib import Path
+          spec = json.loads(Path('tool/desktop_release.json').read_text())
+          app = Path('build/ios/iphoneos/Runner.app')
+          info = plistlib.loads((app/'Info.plist').read_bytes())
+          assert info['CFBundleShortVersionString'] == spec['version']
+          assert info['CFBundleIdentifier'] == 'com.github.wgh136.venera'
+          assert (app / info['CFBundleExecutable']).is_file()
+          payload = Path('package-ios/Payload')
+          payload.mkdir(parents=True)
+          shutil.copytree(app, payload/'Runner.app', symlinks=True)
+          Path('dist').mkdir()
+          target = str(Path('dist', f"venera-{spec['version']}-ios-unsigned.ipa").resolve())
+          subprocess.run(['ditto','-c','-k','--sequesterRsrc','--keepParent','Payload',target], cwd='package-ios', check=True)
+          Path('dist/BUILD-INFO-ios.txt').write_text(f"Source commit: {os.environ['GITHUB_SHA']}\nVersion: {spec['version']}+{spec['build']}\nUnsigned IPA: sign with your own Apple identity before installation.\nNative glass: iOS/iPadOS 26+, shader fallback on older systems.\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: venera-desktop-ios
+          path: dist/
+          if-no-files-found: error
+
+  macos:
+    needs: test
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      FLUTTER_XCODE_CODE_SIGNING_ALLOWED: 'NO'
+      FLUTTER_XCODE_CODE_SIGN_STYLE: Manual
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          architecture: arm64
+          cache: true
+      - run: xcodebuild -version
+      - run: rustup show
+      - run: flutter pub get
+      - name: Build universal macOS app with native AppKit glass
+        run: flutter build macos --release
+      - name: Verify and package macOS app
+        run: |
+          python3 - <<'PY'
+          import json, os, plistlib, shutil, subprocess
+          from pathlib import Path
+          spec = json.loads(Path('tool/desktop_release.json').read_text())
+          app = Path('build/macos/Build/Products/Release/venera.app')
+          info = plistlib.loads((app/'Contents/Info.plist').read_bytes())
+          assert info['CFBundleShortVersionString'] == spec['version']
+          binary = app / 'Contents/MacOS' / info['CFBundleExecutable']
+          arches = subprocess.check_output(['lipo','-archs',str(binary)], text=True).split()
+          assert 'arm64' in arches and 'x86_64' in arches, f'Expected universal app, got {arches}'
+          subprocess.run(['codesign','--force','--deep','--sign','-','--timestamp=none','--entitlements','macos/Runner/Release.entitlements',str(app)], check=True)
+          subprocess.run(['codesign','--verify','--deep','--strict',str(app)], check=True)
+          stage = Path('package-macos')
+          stage.mkdir()
+          shutil.copytree(app, stage/'Venera.app', symlinks=True)
+          (stage/'Applications').symlink_to('/Applications')
+          Path('dist').mkdir()
+          subprocess.run(['hdiutil','create','-volname','Venera Glass','-srcfolder',str(stage),'-ov','-format','UDZO',f"dist/venera-{spec['version']}-macos-universal.dmg"], check=True)
+          subprocess.run(['ditto','-c','-k','--sequesterRsrc','--keepParent',str(app),f"dist/venera-{spec['version']}-macos-universal.zip"], check=True)
+          Path('dist/BUILD-INFO-macos.txt').write_text(f"Source commit: {os.environ['GITHUB_SHA']}\nVersion: {spec['version']}+{spec['build']}\nArchitectures: {', '.join(arches)}\nAd-hoc signed; not Apple Developer ID signed or notarized.\nNative glass: macOS 26+, shader fallback on older systems.\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: venera-desktop-macos
+          path: dist/
+          if-no-files-found: error
+
+  windows:
+    needs: test
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: rustup show
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Install packaging tool
+        run: choco install innosetup --no-progress -y
+      - name: Package portable app and installer
+        shell: pwsh
+        run: |
+          $spec = Get-Content tool/desktop_release.json | ConvertFrom-Json
+          $releaseDir = (Resolve-Path build/windows/x64/runner/Release).Path
+          if (!(Test-Path "$releaseDir/venera.exe") -or !(Test-Path "$releaseDir/flutter_windows.dll")) { throw 'Incomplete Windows bundle' }
+          New-Item dist -ItemType Directory -Force | Out-Null
+          $distDir = (Resolve-Path dist).Path
+          Compress-Archive -Path "$releaseDir/*" -DestinationPath "$distDir/venera-$($spec.version)-windows-x64.zip"
+          $iscc = (Get-ChildItem "${env:ProgramFiles(x86)}/Inno Setup*/ISCC.exe" | Select-Object -First 1).FullName
+          & $iscc "/DAppVersion=$($spec.version)" "/DSourceDir=$releaseDir" "/DDistDir=$distDir" windows/glass-installer.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+          "Source commit: $env:GITHUB_SHA`nVersion: $($spec.version)+$($spec.build)`nArchitecture: x64`nNot Authenticode signed." | Set-Content dist/BUILD-INFO-windows.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: venera-desktop-windows
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: [test, ios, macos, windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: venera-desktop-*
+          merge-multiple: true
+          path: dist/
+      - name: Verify all packages and publish supplement
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          spec = json.loads(Path('tool/desktop_release.json').read_text())
+          expected = [f"venera-{spec['version']}-{suffix}" for suffix in ['ios-unsigned.ipa','macos-universal.dmg','macos-universal.zip','windows-x64.zip','windows-x64-setup.exe']]
+          for name in expected:
+              assert (Path('dist')/name).stat().st_size > 100000, f'Missing/empty package: {name}'
+          sums = [hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name for p in sorted(Path('dist').iterdir()) if p.is_file()]
+          Path('dist/SHA256SUMS-APPLE-DESKTOP.txt').write_text('\n'.join(sums)+'\n')
+          release = json.loads(subprocess.check_output(['gh','release','view',spec['release'],'--repo',os.environ['GITHUB_REPOSITORY'],'--json','body,isDraft'], text=True))
+          assert not release['isDraft'], 'Expected the already-published Android release'
+          marker = '\n\n### Apple / Windows supplement\n'
+          original = release['body'].split(marker)[0]
+          notes = original + marker + f"Built from commit `{os.environ['GITHUB_SHA']}` (the existing Android assets and tag are preserved).\n\n- iOS: unsigned IPA for user signing; UIKit glass on iOS/iPadOS 26+.\n- macOS: universal arm64/x86_64 DMG/ZIP, ad-hoc signed, not notarized; AppKit glass on macOS 26+.\n- Windows: x64 portable ZIP and installer, not Authenticode signed.\n- Older Apple OS versions retain the existing glass fallback.\n- BUILD-INFO files identify the exact source commit and signing status; SHA256SUMS-APPLE-DESKTOP.txt verifies downloads.\n\nNative composition removes custom shader effects from Apple chrome. No device FPS/power improvement is claimed without hardware profiling.\n"
+          Path('supplement-release-notes.md').write_text(notes)
+          subprocess.run(['gh','release','upload',spec['release'],*[str(p) for p in Path('dist').iterdir()],'--repo',os.environ['GITHUB_REPOSITORY'],'--clobber'], check=True)
+          subprocess.run(['gh','release','edit',spec['release'],'--repo',os.environ['GITHUB_REPOSITORY'],'--notes-file','supplement-release-notes.md'], check=True)
+          PY

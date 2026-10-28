@@ -319,6 +319,26 @@ class NaviPaneState extends State<NaviPane>
     final safeBottom = MediaQuery.of(context).padding.bottom;
     final scheme = Theme.of(context).colorScheme;
 
+    if (glassOn && Glass.usesNative(context)) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(Glass.dockHPad, 0, Glass.dockHPad, 8 + safeBottom),
+        child: GlassSurface(
+          borderRadius: BorderRadius.circular(Glass.dockRadius),
+          child: SizedBox(
+            height: _kFloatingBarHeight,
+            child: Row(children: List.generate(widget.paneItems.length, (i) => Expanded(
+              child: _SingleBottomNaviWidget(
+                enabled: currentPage == i,
+                entry: widget.paneItems[i],
+                onTap: () => updatePage(i),
+                key: ValueKey(i),
+              ),
+            ))),
+          ),
+        ),
+      );
+    }
+
     if (glassOn) {
       // BiliPai / iOS-style floating liquid-glass capsule dock.
       // GlassTabBar.bottom: horizontal margin, jelly indicator, refraction.

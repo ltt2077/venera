@@ -34,6 +34,7 @@ import 'package:venera/utils/tags_translation.dart';
 import 'package:venera/utils/translations.dart';
 
 import 'retained_tab_view.dart';
+import 'apple_native_glass.dart';
 
 part 'image.dart';
 part 'appbar.dart';

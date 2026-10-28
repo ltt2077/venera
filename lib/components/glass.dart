@@ -10,6 +10,9 @@ part of 'components.dart';
 class Glass {
   Glass._();
 
+  static bool usesNative(BuildContext context) =>
+      AppleNativeGlass.supported && shouldBlur(context);
+
   static bool get enabled {
     final v = appdata.settings['liquidGlass'];
     if (v is bool) return v;
@@ -298,6 +301,12 @@ class GlassSurface extends StatelessWidget {
       content = Padding(padding: padding!, child: content);
     }
 
+    if (Glass.usesNative(context)) {
+      Widget native = AppleGlassSurface(radius: r, child: content);
+      if (margin != null) native = Padding(padding: margin!, child: native);
+      return native;
+    }
+
     final glass = AdaptiveGlass(
       shape: r > 0
           ? LiquidRoundedSuperellipse(borderRadius: r)
@@ -369,6 +378,20 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final radius = BorderRadius.circular(14);
+
+    // Dense cells use a cheap theme fill; embedding a native view per row would
+    // add hybrid-composition synchronization and defeat the chrome optimization.
+    if (Glass.usesNative(context)) {
+      return Card(
+        color: Theme.of(context).colorScheme.surfaceContainerHigh.withValues(alpha: 0.72),
+        margin: margin ?? const EdgeInsets.only(bottom: 8),
+        child: InkWell(
+          borderRadius: radius,
+          onTap: onTap,
+          child: padding == null ? child : Padding(padding: padding!, child: child),
+        ),
+      );
+    }
 
     if (!Glass.shouldBlur(context)) {
       return Card(

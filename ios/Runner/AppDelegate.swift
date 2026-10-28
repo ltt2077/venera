@@ -21,6 +21,16 @@ import Foundation // 添加此行
           fatalError("rootViewController is not of type FlutterViewController")
     }
 
+    let glassChannel = FlutterMethodChannel(name: "venera/native_glass", binaryMessenger: controller.binaryMessenger)
+    glassChannel.setMethodCallHandler { call, result in
+      if call.method == "isSupported" {
+        if #available(iOS 26.0, *) { result(true) } else { result(false) }
+      } else { result(FlutterMethodNotImplemented) }
+    }
+    if let registrar = registrar(forPlugin: "VeneraNativeGlass") {
+      registrar.register(VeneraGlassFactory(messenger: controller.binaryMessenger), withId: "venera/native_glass_surface")
+    }
+
     let methodChannel = FlutterMethodChannel(name: "venera/method_channel", binaryMessenger: controller.binaryMessenger)
     methodChannel.setMethodCallHandler { (call, result) in
       if call.method == "getProxy" {
@@ -87,5 +97,59 @@ import Foundation // 添加此行
 
   func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
     flutterResult?(nil)
+  }
+}
+
+private class VeneraGlassFactory: NSObject, FlutterPlatformViewFactory {
+  let messenger: FlutterBinaryMessenger
+  init(messenger: FlutterBinaryMessenger) { self.messenger = messenger; super.init() }
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol { FlutterStandardMessageCodec.sharedInstance() }
+  func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+    VeneraGlassView(frame: frame, id: viewId, args: args, messenger: messenger)
+  }
+}
+
+private class VeneraGlassView: NSObject, FlutterPlatformView {
+  private let surface: UIVisualEffectView
+  private let channel: FlutterMethodChannel
+  private var observer: NSObjectProtocol?
+  private var parameters: [String: Any] = [:]
+
+  init(frame: CGRect, id: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
+    surface = UIVisualEffectView(frame: frame)
+    channel = FlutterMethodChannel(name: "venera/native_glass/\(id)", binaryMessenger: messenger)
+    super.init()
+    surface.isUserInteractionEnabled = false
+    surface.clipsToBounds = true
+    update(args as? [String: Any] ?? [:])
+    channel.setMethodCallHandler { [weak self] call, result in
+      if call.method == "update" { self?.update(call.arguments as? [String: Any] ?? [:]); result(nil) }
+      else { result(FlutterMethodNotImplemented) }
+    }
+    observer = NotificationCenter.default.addObserver(forName: UIAccessibility.reduceTransparencyStatusDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+      guard let self = self else { return }; self.update(self.parameters)
+    }
+  }
+  func update(_ args: [String: Any]) {
+    parameters = args
+    surface.layer.cornerRadius = CGFloat((args["radius"] as? NSNumber)?.doubleValue ?? 0)
+    let dark = args["dark"] as? Bool ?? false
+    surface.overrideUserInterfaceStyle = dark ? .dark : .light
+    if UIAccessibility.isReduceTransparencyEnabled {
+      surface.effect = nil
+      surface.backgroundColor = dark ? .secondarySystemBackground : .systemBackground
+    } else if #available(iOS 26.0, *) {
+      let effect = UIGlassEffect(style: .regular)
+      effect.isInteractive = false
+      surface.backgroundColor = .clear
+      surface.effect = effect
+    } else {
+      surface.effect = UIBlurEffect(style: .systemMaterial)
+    }
+  }
+  func view() -> UIView { surface }
+  deinit {
+    channel.setMethodCallHandler(nil)
+    if let observer = observer { NotificationCenter.default.removeObserver(observer) }
   }
 }

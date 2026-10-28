@@ -11,6 +11,7 @@ import 'package:venera/pages/main_page.dart';
 import 'package:venera/utils/io.dart';
 import 'package:window_manager/window_manager.dart';
 import 'components/components.dart';
+import 'components/apple_native_glass.dart';
 import 'components/window_frame.dart';
 import 'foundation/app.dart';
 import 'foundation/appdata.dart';
@@ -28,6 +29,7 @@ void main(List<String> args) {
     runZonedGuarded(() async {
       WidgetsFlutterBinding.ensureInitialized();
       await init();
+      await AppleNativeGlass.initialize();
       await LiquidGlassWidgets.initialize(
         enablePerformanceMonitor: false,
       );
@@ -195,7 +197,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     } else {
       home = const MainPage();
     }
-    final adaptive = Glass.qualityMode == 'adaptive';
+    final adaptive = !AppleNativeGlass.supported && Glass.qualityMode == 'adaptive';
     return LiquidGlassWidgets.wrap(
       adaptiveQuality: adaptive,
       respectSystemAccessibility: true,
