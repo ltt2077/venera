@@ -746,7 +746,7 @@ class _NaviMainViewState extends State<_NaviMainView> {
     final mq = MediaQuery.of(context);
     final dockInset = shouldShowAppBar ? state.bottomBarHeight : mq.padding.bottom;
 
-    // Keep every tab alive — no AnimatedSwitcher fade (white flash) / layout jump.
+    // Retain visited tabs without eagerly loading every source at startup.
     Widget body = MediaQuery(
       data: mq.copyWith(
         padding: mq.padding.copyWith(
@@ -754,16 +754,10 @@ class _NaviMainViewState extends State<_NaviMainView> {
           bottom: dockInset,
         ),
       ),
-      child: IndexedStack(
+      child: RetainedTabView(
         index: state.currentPage,
-        sizing: StackFit.expand,
-        children: List<Widget>.generate(
-          state.widget.paneItems.length,
-          (i) => KeyedSubtree(
-            key: ValueKey('navi-tab-$i'),
-            child: state.widget.pageBuilder(i),
-          ),
-        ),
+        itemCount: state.widget.paneItems.length,
+        itemBuilder: (context, i) => state.widget.pageBuilder(i),
       ),
     );
 

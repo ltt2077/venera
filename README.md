@@ -40,3 +40,10 @@ The Chinese translation of the manga tags is from this project.
 ## Headless Mode
 See [Headless Doc](doc/headless_doc.md)
 
+
+
+## Glass fork maintenance
+
+The customized application lives on [`glass-cloud`](https://github.com/ltt2077/venera/tree/glass-cloud).
+Version 1.7.7 adds lazy retained tabs, debounced cloud sync and backup/restore fixes.
+See [backup compatibility and validation](doc/backup_compatibility.md).

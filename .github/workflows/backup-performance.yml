@@ -1,0 +1,34 @@
+name: Backup and performance checks
+on:
+  pull_request:
+    branches: [glass-cloud]
+  push:
+    branches: [glass-cloud, codex/performance-backup-compat]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SQLite test dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.4'
+          cache: true
+      - run: flutter pub get
+      - run: dart run tool/check_backup_core.dart
+      - run: flutter test
+      - name: Analyze changed libraries
+        run: >-
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          lib/utils/backup_format.dart lib/utils/backup_database.dart
+          lib/utils/cloud_storage/backup_policy.dart lib/utils/data.dart
+          lib/utils/data_sync.dart lib/foundation/appdata.dart
+          lib/components/retained_tab_view.dart test

@@ -205,11 +205,9 @@ class QuarkCloudProvider implements CloudStorageProvider {
           'Quark PUT failed: HTTP ${put.statusCode}',
         );
       }
-    } else if (taskId != null) {
-      Log.info(
-        'CloudSync',
-        'Quark upload metadata task=$taskId uploadId=$uploadId '
-        'bucket=$bucket key=$objKey (direct URL missing — finish only)',
+    } else {
+      throw CloudProviderException(
+        'Quark upload URL missing; file content was not uploaded',
       );
     }
 

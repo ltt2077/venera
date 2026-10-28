@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/utils/data_sync.dart';
+import 'package:venera/utils/backup_format.dart';
 import 'package:venera/utils/init.dart';
 import 'package:venera/utils/io.dart';
 
@@ -24,30 +25,15 @@ class Appdata with Init {
     }
     _isSavingData = true;
     try {
-      var futures = <Future>[];
-      var json = toJson();
-      var data = jsonEncode(json);
       var file = File(FilePath.join(App.dataPath, 'appdata.json'));
-      futures.add(file.writeAsString(data));
-
-      var disableSyncFields = json["settings"]["disableSyncFields"] as String;
-      if (disableSyncFields.isNotEmpty) {
-        var json4sync = jsonDecode(data);
-        List<String> customDisableSync = splitField(disableSyncFields);
-        for (var field in customDisableSync) {
-          json4sync["settings"].remove(field);
-        }
-        var data4sync = jsonEncode(json4sync);
-        var file4sync = File(FilePath.join(App.dataPath, 'syncdata.json'));
-        futures.add(file4sync.writeAsString(data4sync));
-      }
-
-      await Future.wait(futures);
+      // Sync snapshots are generated on demand by exportAppData, avoiding a
+      // second JSON encode and file write for every settings change.
+      await file.writeAsString(jsonEncode(toJson()));
     } finally {
       _isSavingData = false;
     }
     if (sync) {
-      DataSync().uploadData();
+      DataSync().onDataChanged();
     }
   }
 
@@ -84,45 +70,31 @@ class Appdata with Init {
         .toList();
   }
 
-  /// Following fields are related to device-specific data and should not be synced.
-  static const _disableSync = [
-    "proxy",
-    "authorizationRequired",
-    "customImageProcessing",
-    "webdav",
-    "cloudProvider",
-    "cloudConfig",
-    "cloudProfiles",
-    "cloudDefaultProfileId",
-    "cloudActiveProfileId",
-    "cloudAutoFailover",
-    "cloudSyncMode",
-    "disableSyncFields",
-    "deviceId",
-  ];
-
   /// Sync data from another device
-  void syncData(Map<String, dynamic> data) {
+  Future<void> syncData(
+    Map<String, dynamic> data, {
+    bool sync = true,
+    bool restoreCloudSettings = false,
+  }) async {
     if (data['settings'] is Map) {
       var settings = data['settings'] as Map<String, dynamic>;
 
-      List<String> customDisableSync = splitField(
-        this.settings["disableSyncFields"] as String,
+      final incoming = settingsForRestore(
+        settings,
+        this.settings._data,
+        restoreCloudSettings: restoreCloudSettings,
       );
-
-      for (var key in settings.keys) {
-        if (!_disableSync.contains(key) && !customDisableSync.contains(key)) {
-          this.settings[key] = settings[key];
-        }
+      for (final entry in incoming.entries) {
+        this.settings[entry.key] = entry.value;
       }
     }
     searchHistory = List.from(data['searchHistory'] ?? []);
-    saveData();
+    await saveData(sync);
   }
 
   var implicitData = <String, dynamic>{};
 
-  void writeImplicitData() async {
+  Future<void> writeImplicitData() async {
     while (_isSavingData) {
       await Future.delayed(const Duration(milliseconds: 20));
     }

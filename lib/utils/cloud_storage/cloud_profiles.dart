@@ -314,7 +314,8 @@ class CloudProfileStore {
   }
 }
 
-bool cloudAutoSyncEnabled() {
-  return appdata.implicitData['cloudAutoSync'] == true ||
-      appdata.implicitData['webdavAutoSync'] == true;
+bool cloudAutoSyncEnabled([Map<String, dynamic>? implicitData]) {
+  final data = implicitData ?? appdata.implicitData;
+  // An explicit new switch overrides the legacy value, including false.
+  return (data['cloudAutoSync'] ?? data['webdavAutoSync']) == true;
 }

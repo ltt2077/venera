@@ -33,6 +33,8 @@ import 'package:venera/utils/io.dart';
 import 'package:venera/utils/tags_translation.dart';
 import 'package:venera/utils/translations.dart';
 
+import 'retained_tab_view.dart';
+
 part 'image.dart';
 part 'appbar.dart';
 part 'button.dart';

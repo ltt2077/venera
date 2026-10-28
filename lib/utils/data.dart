@@ -11,47 +11,98 @@ import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/network/cookie_jar.dart';
 import 'package:venera/utils/ext.dart';
+import 'package:venera/utils/backup_format.dart';
+import 'package:venera/utils/backup_database.dart';
+import 'package:venera/utils/data_sync.dart';
 import 'package:zip_flutter/zip_flutter.dart';
 
 import 'io.dart';
 
 Future<File> exportAppData([bool sync = true]) async {
-  var time = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-  var cacheFilePath = FilePath.join(App.cachePath, '$time.venera');
-  var cacheFile = File(cacheFilePath);
-  var dataPath = App.dataPath;
-  if (await cacheFile.exists()) {
-    await cacheFile.delete();
-  }
-  await Isolate.run(() {
-    var zipFile = ZipFile.open(cacheFilePath);
-    var historyFile = FilePath.join(dataPath, "history.db");
-    var localFavoriteFile = FilePath.join(dataPath, "local_favorite.db");
-    var appdata = FilePath.join(dataPath, sync ? "syncdata.json" : "appdata.json");
-    var cookies = FilePath.join(dataPath, "cookie.db");
-    zipFile.addFile("history.db", historyFile);
-    zipFile.addFile("local_favorite.db", localFavoriteFile);
-    zipFile.addFile("appdata.json", appdata);
-    zipFile.addFile("cookie.db", cookies);
-    for (var file
-        in Directory(FilePath.join(dataPath, "comic_source")).listSync()) {
-      if (file is File) {
-        zipFile.addFile("comic_source/${file.name}", file.path);
+  final staging = await Directory(App.cachePath).createTemp('venera-export-');
+  final stagingPath = staging.path;
+  final cacheFilePath = '$stagingPath.venera';
+  final cacheFile = File(cacheFilePath);
+  final dataPath = App.dataPath;
+  final snapshot = jsonEncode(appdata.toJson());
+  final metadata = sync
+      ? null
+      : jsonEncode(forkBackupMetadata(appdata.implicitData));
+  try {
+    await Isolate.run(() async {
+      final settingsFile = File(FilePath.join(stagingPath, 'appdata.json'));
+      settingsFile.writeAsStringSync(
+        jsonEncode(
+          appDataForBackup(
+            jsonDecode(snapshot) as Map<String, dynamic>,
+            sync: sync,
+          ),
+        ),
+      );
+      final zipFile = ZipFile.open(cacheFilePath);
+      try {
+        for (final name in ['history.db', 'local_favorite.db', 'cookie.db']) {
+          final source = File(FilePath.join(dataPath, name));
+          if (source.existsSync()) {
+            final snapshotPath = FilePath.join(stagingPath, name);
+            await snapshotBackupDatabase(source.path, snapshotPath);
+            zipFile.addFile(name, snapshotPath);
+          }
+        }
+        zipFile.addFile('appdata.json', settingsFile.path);
+        if (metadata != null) {
+          final extra = File(FilePath.join(stagingPath, 'venera_glass.json'))
+            ..writeAsStringSync(metadata);
+          zipFile.addFile('venera_glass.json', extra.path);
+        }
+        final sources = Directory(FilePath.join(dataPath, 'comic_source'));
+        if (sources.existsSync()) {
+          for (final file in sources.listSync()) {
+            if (file is File) {
+              zipFile.addFile('comic_source/${file.name}', file.path);
+            }
+          }
+        }
+      } finally {
+        zipFile.close();
       }
-    }
-    zipFile.close();
-  });
-  return cacheFile;
+    });
+    return cacheFile;
+  } catch (_) {
+    await cacheFile.deleteIgnoreError();
+    rethrow;
+  } finally {
+    await staging.deleteIgnoreError(recursive: true);
+  }
 }
 
-Future<void> importAppData(File file, [bool checkVersion = false]) async {
-  var cacheDirPath = FilePath.join(App.cachePath, 'temp_data');
-  var cacheDir = Directory(cacheDirPath);
-  if (cacheDir.existsSync()) {
-    cacheDir.deleteSync(recursive: true);
+bool _isImportingAppData = false;
+bool get isImportingAppData => _isImportingAppData;
+
+Future<void> importAppData(File file, [bool checkVersion = false]) =>
+    restoreAppData(file, checkVersion: checkVersion);
+
+/// Cloud downloads keep this device's sync targets. Manual imports also restore
+/// the fork's cloud settings, including older fork backups without metadata.
+Future<void> restoreAppData(
+  File file, {
+  bool checkVersion = false,
+  bool restoreCloudSettings = true,
+}) async {
+  if (_isImportingAppData) {
+    throw StateError('An app-data restore is already in progress');
   }
-  cacheDir.createSync();
+  if (restoreCloudSettings &&
+      (DataSync.instance?.isUploading == true ||
+          DataSync.instance?.isDownloading == true)) {
+    throw StateError('Wait for cloud sync to finish before importing app data');
+  }
+  _isImportingAppData = true;
+  DataSync.instance?.cancelScheduledSync();
+  Directory? cacheDir;
   try {
+    cacheDir = await Directory(App.cachePath).createTemp('venera-import-');
+    final cacheDirPath = cacheDir.path;
     await Isolate.run(() {
       ZipFile.openAndExtract(file.path, cacheDirPath);
     });
@@ -59,9 +110,28 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
     var localFavoriteFile = cacheDir.joinFile("local_favorite.db");
     var appdataFile = cacheDir.joinFile("appdata.json");
     var cookieFile = cacheDir.joinFile("cookie.db");
-    if (checkVersion && appdataFile.existsSync()) {
-      var data = jsonDecode(await appdataFile.readAsString());
-      var version = data["settings"]["dataVersion"];
+    if (!await appdataFile.exists()) {
+      throw const FormatException(
+        'Invalid Venera backup: appdata.json is missing',
+      );
+    }
+    final data = decodeBackupAppData(await appdataFile.readAsString());
+    final extra = cacheDir.joinFile('venera_glass.json');
+    final autoSync = restoreCloudSettings && await extra.exists()
+        ? decodeForkAutoSync(await extra.readAsString())
+        : <String, bool>{};
+    await Isolate.run(() {
+      for (final entry in {
+        'history.db': 'history',
+        'local_favorite.db': 'folder_order',
+        'cookie.db': 'cookies',
+      }.entries) {
+        final path = FilePath.join(cacheDirPath, entry.key);
+        if (File(path).existsSync()) validateBackupDatabase(path, entry.value);
+      }
+    });
+    if (checkVersion) {
+      var version = data['settings']['dataVersion'];
       if (version is int && version <= appdata.settings["dataVersion"]) {
         return;
       }
@@ -70,45 +140,66 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
       HistoryManager().close();
       File(FilePath.join(App.dataPath, "history.db")).deleteIfExistsSync();
       historyFile.renameSync(FilePath.join(App.dataPath, "history.db"));
-      HistoryManager().init();
+      await HistoryManager().init();
     }
     if (await localFavoriteFile.exists()) {
       LocalFavoritesManager().close();
-      File(FilePath.join(App.dataPath, "local_favorite.db"))
-          .deleteIfExistsSync();
-      localFavoriteFile
-          .renameSync(FilePath.join(App.dataPath, "local_favorite.db"));
-      LocalFavoritesManager().init();
-    }
-    if (await appdataFile.exists()) {
-      var content = await appdataFile.readAsString();
-      var data = jsonDecode(content);
-      appdata.syncData(data);
+      File(
+        FilePath.join(App.dataPath, "local_favorite.db"),
+      ).deleteIfExistsSync();
+      localFavoriteFile.renameSync(
+        FilePath.join(App.dataPath, "local_favorite.db"),
+      );
+      await LocalFavoritesManager().init();
     }
     if (await cookieFile.exists()) {
-      SingleInstanceCookieJar.instance?.dispose();
+      final jar = SingleInstanceCookieJar.instance;
+      jar?.dispose();
       File(FilePath.join(App.dataPath, "cookie.db")).deleteIfExistsSync();
       cookieFile.renameSync(FilePath.join(App.dataPath, "cookie.db"));
-      SingleInstanceCookieJar.instance =
-          SingleInstanceCookieJar(FilePath.join(App.dataPath, "cookie.db"))
-            ..init();
+      if (jar != null) {
+        // Keep existing network interceptors attached to the same cookie jar.
+        jar.init();
+      } else {
+        SingleInstanceCookieJar.instance = SingleInstanceCookieJar(
+          FilePath.join(App.dataPath, 'cookie.db'),
+        );
+      }
     }
+    if (restoreCloudSettings) {
+      appdata.implicitData.addAll(autoSync);
+    }
+    // A restored archive is already persisted; do not upload it again while
+    // applying it, or overwrite cloud credentials during a cross-device sync.
+    await appdata.syncData(
+      data,
+      sync: false,
+      restoreCloudSettings: restoreCloudSettings,
+    );
     var comicSourceDir = FilePath.join(cacheDirPath, "comic_source");
     if (Directory(comicSourceDir).existsSync()) {
-      Directory(FilePath.join(App.dataPath, "comic_source"))
-          .deleteIfExistsSync(recursive: true);
+      Directory(
+        FilePath.join(App.dataPath, "comic_source"),
+      ).deleteIfExistsSync(recursive: true);
       Directory(FilePath.join(App.dataPath, "comic_source")).createSync();
       for (var file in Directory(comicSourceDir).listSync()) {
         if (file is File) {
-          var targetFile =
-              FilePath.join(App.dataPath, "comic_source", file.name);
+          var targetFile = FilePath.join(
+            App.dataPath,
+            "comic_source",
+            file.name,
+          );
           await file.copy(targetFile);
         }
       }
       await ComicSourceManager().reload();
     }
+    appdata.implicitData.remove('cloudLocalDataMtime');
+    appdata.implicitData['cloudDataDirty'] = false;
+    await appdata.writeImplicitData();
   } finally {
-    cacheDir.deleteIgnoreError(recursive: true);
+    if (cacheDir != null) await cacheDir.deleteIgnoreError(recursive: true);
+    _isImportingAppData = false;
   }
 }
 
@@ -131,20 +222,25 @@ Future<void> importPicaData(File file) async {
             .select("SELECT name FROM sqlite_master WHERE type='table';")
             .map((e) => e["name"] as String)
             .toList();
-        folderNames
-            .removeWhere((e) => e == "folder_order" || e == "folder_sync");
+        folderNames.removeWhere(
+          (e) => e == "folder_order" || e == "folder_sync",
+        );
         for (var folderSyncValue in db.select("SELECT * FROM folder_sync;")) {
           var folderName = folderSyncValue["folder_name"];
           String sourceKey = folderSyncValue["key"];
-          sourceKey =
-              sourceKey.toLowerCase() == "htmanga" ? "wnacg" : sourceKey;
+          sourceKey = sourceKey.toLowerCase() == "htmanga"
+              ? "wnacg"
+              : sourceKey;
           // 有值就跳过
           if (LocalFavoritesManager().findLinked(folderName).$1 != null) {
             continue;
           }
           try {
-            LocalFavoritesManager().linkFolderToNetwork(folderName, sourceKey,
-                jsonDecode(folderSyncValue["sync_data"])["folderId"]);
+            LocalFavoritesManager().linkFolderToNetwork(
+              folderName,
+              sourceKey,
+              jsonDecode(folderSyncValue["sync_data"])["folderId"],
+            );
           } catch (e, stack) {
             Log.error(e.toString(), stack);
           }
@@ -168,7 +264,7 @@ Future<void> importPicaData(File file) async {
                   3 => 'hitomi'.hashCode,
                   4 => 'wnacg'.hashCode,
                   6 => 'nhentai'.hashCode,
-                  _ => comic['type']
+                  _ => comic['type'],
                 }),
                 tags: comic['tags'].split(','),
               ),
@@ -195,7 +291,7 @@ Future<void> importPicaData(File file) async {
                 3 => 'hitomi'.hashCode,
                 4 => 'wnacg'.hashCode,
                 5 => 'nhentai'.hashCode,
-                _ => comic['type']
+                _ => comic['type'],
               },
               "id": comic['target'],
               "max_page": comic["max_page"],
@@ -228,25 +324,46 @@ Future<void> importPicaData(File file) async {
           String epName = "";
           ImageFavoritesComic? tempComic = imageFavoritesComicList
               .firstWhereOrNull((e) => e.id == id && e.sourceKey == sourceKey);
-          ImageFavorite curImageFavorite =
-              ImageFavorite(page, "", null, "", id, ep, sourceKey, epName);
+          ImageFavorite curImageFavorite = ImageFavorite(
+            page,
+            "",
+            null,
+            "",
+            id,
+            ep,
+            sourceKey,
+            epName,
+          );
           if (tempComic == null) {
-            tempComic = ImageFavoritesComic(id, [], title, sourceKey, [], [],
-                DateTime.now(), "", {}, "", 1);
+            tempComic = ImageFavoritesComic(
+              id,
+              [],
+              title,
+              sourceKey,
+              [],
+              [],
+              DateTime.now(),
+              "",
+              {},
+              "",
+              1,
+            );
             tempComic.imageFavoritesEp = [
-              ImageFavoritesEp("", ep, [curImageFavorite], epName, 1)
+              ImageFavoritesEp("", ep, [curImageFavorite], epName, 1),
             ];
             imageFavoritesComicList.add(tempComic);
           } else {
-            ImageFavoritesEp? tempEp =
-                tempComic.imageFavoritesEp.firstWhereOrNull((e) => e.ep == ep);
+            ImageFavoritesEp? tempEp = tempComic.imageFavoritesEp
+                .firstWhereOrNull((e) => e.ep == ep);
             if (tempEp == null) {
-              tempComic.imageFavoritesEp
-                  .add(ImageFavoritesEp("", ep, [curImageFavorite], epName, 1));
+              tempComic.imageFavoritesEp.add(
+                ImageFavoritesEp("", ep, [curImageFavorite], epName, 1),
+              );
             } else {
               // 如果已经有这个page了, 就不添加了
-              if (tempEp.imageFavorites
-                      .firstWhereOrNull((e) => e.page == page) ==
+              if (tempEp.imageFavorites.firstWhereOrNull(
+                    (e) => e.page == page,
+                  ) ==
                   null) {
                 tempEp.imageFavorites.add(curImageFavorite);
               }
