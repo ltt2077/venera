@@ -4,6 +4,7 @@ The first iOS/macOS/Windows 1.7.7 packages supplement the published Android
 release. Each BUILD-INFO file records the exact supplement source commit;
 the existing Android tag and assets are preserved.
 
+The iOS package requires iOS 15 or newer, matching the existing glass plugin.
 On iOS/iPadOS 26+ the app uses UIKit `UIGlassEffect` in `UIVisualEffectView`.
 On macOS 26+ it uses AppKit `NSGlassEffectView`. Runtime capability detection
 keeps the existing Flutter shader fallback on older Apple OS versions and other

@@ -2,5 +2,15 @@
   "version": "1.7.7",
   "build": 177,
   "release": "v1.7.7-glass",
-  "supplement": "apple-native-desktop-3"
+  "supplement": "apple-native-desktop-4",
+  "reuse": {
+    "macos": {
+      "run": 40647283860,
+      "commit": "ada14b088104e20ff09d3e57ee072466d0da274a"
+    },
+    "windows": {
+      "run": 40647283860,
+      "commit": "ada14b088104e20ff09d3e57ee072466d0da274a"
+    }
+  }
 }

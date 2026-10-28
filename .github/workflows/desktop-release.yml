@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: desktop-release
+  group: desktop-release-${{ github.sha }}
   cancel-in-progress: true
 
 env:
@@ -20,8 +20,20 @@ env:
 jobs:
   test:
     runs-on: ubuntu-22.04
+    outputs:
+      reused_platforms: ${{ steps.release.outputs.reused_platforms }}
     steps:
       - uses: actions/checkout@v4
+      - name: Read platform build plan
+        id: release
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          spec = json.loads(Path('tool/desktop_release.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('reused_platforms=' + json.dumps(list(spec.get('reuse', {}))) + '\n')
+          PY
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -36,6 +48,7 @@ jobs:
 
   ios:
     needs: test
+    if: ${{ !contains(fromJSON(needs.test.outputs.reused_platforms), 'ios') }}
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -78,6 +91,7 @@ jobs:
 
   macos:
     needs: test
+    if: ${{ !contains(fromJSON(needs.test.outputs.reused_platforms), 'macos') }}
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -127,6 +141,7 @@ jobs:
 
   windows:
     needs: test
+    if: ${{ !contains(fromJSON(needs.test.outputs.reused_platforms), 'windows') }}
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
@@ -162,9 +177,11 @@ jobs:
 
   publish:
     needs: [test, ios, macos, windows]
+    if: ${{ always() && needs.test.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped') && (needs.macos.result == 'success' || needs.macos.result == 'skipped') && (needs.windows.result == 'success' || needs.windows.result == 'skipped') }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -180,6 +197,15 @@ jobs:
           import hashlib, json, os, subprocess
           from pathlib import Path
           spec = json.loads(Path('tool/desktop_release.json').read_text())
+          repo = os.environ['GITHUB_REPOSITORY']
+          for platform, source in spec.get('reuse', {}).items():
+              run = json.loads(subprocess.check_output(['gh','api',f"repos/{repo}/actions/runs/{source['run']}"], text=True))
+              assert run['head_sha'] == source['commit'], f'Reused {platform} commit mismatch'
+              jobs = json.loads(subprocess.check_output(['gh','api',f"repos/{repo}/actions/runs/{source['run']}/jobs?per_page=100"], text=True))['jobs']
+              assert any(job['name'] == platform and job['conclusion'] == 'success' for job in jobs), f'Reused {platform} build has not passed'
+              subprocess.run(['gh','run','download',str(source['run']),'--repo',repo,'--name',f'venera-desktop-{platform}','--dir','dist'], check=True)
+          current = subprocess.check_output(['gh','api',f'repos/{repo}/branches/glass-cloud','--jq','.commit.sha'], text=True).strip()
+          assert current == os.environ['GITHUB_SHA'], 'Newer source exists; refusing to publish a stale manifest'
           expected = [f"venera-{spec['version']}-{suffix}" for suffix in ['ios-unsigned.ipa','macos-universal.dmg','macos-universal.zip','windows-x64.zip','windows-x64-setup.exe']]
           for name in expected:
               assert (Path('dist')/name).stat().st_size > 100000, f'Missing/empty package: {name}'
@@ -189,7 +215,7 @@ jobs:
           assert not release['isDraft'], 'Expected the already-published Android release'
           marker = '\n\n### Apple / Windows supplement\n'
           original = release['body'].split(marker)[0]
-          notes = original + marker + f"Built from commit `{os.environ['GITHUB_SHA']}` (the existing Android assets and tag are preserved).\n\n- iOS: unsigned IPA for user signing; UIKit glass on iOS/iPadOS 26+.\n- macOS: universal arm64/x86_64 DMG/ZIP, ad-hoc signed, not notarized; AppKit glass on macOS 26+.\n- Windows: x64 portable ZIP and installer, not Authenticode signed.\n- Older Apple OS versions retain the existing glass fallback.\n- BUILD-INFO files identify the exact source commit and signing status; SHA256SUMS-APPLE-DESKTOP.txt verifies downloads.\n\nNative composition removes custom shader effects from Apple chrome. No device FPS/power improvement is claimed without hardware profiling.\n"
+          notes = original + marker + f"Supplement manifest at commit `{os.environ['GITHUB_SHA']}`; exact per-platform source commits are recorded in BUILD-INFO files (existing Android assets and tag are preserved).\n\n- iOS 15+: unsigned IPA for user signing; UIKit glass on iOS/iPadOS 26+.\n- macOS: universal arm64/x86_64 DMG/ZIP, ad-hoc signed, not notarized; AppKit glass on macOS 26+.\n- Windows: x64 portable ZIP and installer, not Authenticode signed.\n- Older supported Apple OS versions retain the existing glass fallback.\n- BUILD-INFO files identify the exact source commit and signing status; SHA256SUMS-APPLE-DESKTOP.txt verifies downloads.\n\nNative composition removes custom shader effects from Apple chrome. No device FPS/power improvement is claimed without hardware profiling.\n"
           Path('supplement-release-notes.md').write_text(notes)
           subprocess.run(['gh','release','upload',spec['release'],*[str(p) for p in Path('dist').iterdir()],'--repo',os.environ['GITHUB_REPOSITORY'],'--clobber'], check=True)
           subprocess.run(['gh','release','edit',spec['release'],'--repo',os.environ['GITHUB_REPOSITORY'],'--notes-file','supplement-release-notes.md'], check=True)
