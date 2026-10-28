@@ -1,5 +1,7 @@
 {
   "zh_CN": {
+    "System Glass": "系统玻璃效果",
+    "The system manages the material. Dock layout remains adjustable.": "材质外观由系统管理，仍可调整底栏布局。",
     "Home": "主页",
     "Favorites": "收藏",
     "Explore": "发现",
@@ -500,6 +502,8 @@
     "Reset to defaults": "已恢复默认"
   },
   "zh_TW": {
+    "System Glass": "系統玻璃效果",
+    "The system manages the material. Dock layout remains adjustable.": "材質外觀由系統管理，仍可調整底欄版面。",
     "Home": "首頁",
     "Favorites": "收藏",
     "Explore": "探索",

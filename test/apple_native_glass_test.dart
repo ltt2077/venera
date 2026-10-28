@@ -80,6 +80,7 @@ void main() {
       await tester.tap(find.text('Tap'));
       expect(taps, 1);
       await tester.pumpWidget(const SizedBox());
+      debugDefaultTargetPlatformOverride = null;
     },
   );
 }

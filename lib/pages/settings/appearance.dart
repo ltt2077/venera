@@ -65,74 +65,80 @@ class _AppearanceSettingsState extends State<AppearanceSettings> {
   }
 
   List<Widget> _glassParamSlivers() {
+    final native = Glass.usesNative(context);
     return [
       SliverToBoxAdapter(
         child: ListTile(
-          title: Text("Liquid Glass Parameters".tl),
+          title: Text((native ? "System Glass" : "Liquid Glass Parameters").tl),
           subtitle: Text(
-            "Tune blur, tint, refraction and dock. Changes apply immediately.".tl,
+            (native
+                    ? "The system manages the material. Dock layout remains adjustable."
+                    : "Tune blur, tint, refraction and dock. Changes apply immediately.")
+                .tl,
           ),
         ),
       ),
-      SelectSetting(
-        title: "Glass Quality".tl,
-        settingKey: "liquidGlassQuality",
-        optionTranslation: {
-          "adaptive": "Adaptive".tl,
-          "premium": "Premium (High)".tl,
-          "standard": "Standard".tl,
-          "minimal": "Power Saving (Minimal)".tl,
-        },
-        onChanged: _rebuildGlass,
-      ).toSliver(),
-      _SliderSetting(
-        title: "Blur Strength".tl,
-        settingsIndex: "liquidGlassBlur",
-        min: 0,
-        max: 4,
-        interval: 0.1,
-        onChanged: _rebuildGlass,
-      ).toSliver(),
-      _SliderSetting(
-        title: "Frost Strength".tl,
-        settingsIndex: "liquidGlassFrost",
-        min: 0,
-        max: 30,
-        interval: 1,
-        onChanged: _rebuildGlass,
-      ).toSliver(),
-      _SliderSetting(
-        title: "Tint Opacity".tl,
-        settingsIndex: "liquidGlassOpacity",
-        min: 0.05,
-        max: 0.95,
-        interval: 0.01,
-        onChanged: _rebuildGlass,
-      ).toSliver(),
-      _SliderSetting(
-        title: "Thickness / Refraction Depth".tl,
-        settingsIndex: "liquidGlassThickness",
-        min: 10,
-        max: 60,
-        interval: 1,
-        onChanged: _rebuildGlass,
-      ).toSliver(),
-      _SliderSetting(
-        title: "Refractive Index".tl,
-        settingsIndex: "liquidGlassRefraction",
-        min: 1.05,
-        max: 1.5,
-        interval: 0.01,
-        onChanged: _rebuildGlass,
-      ).toSliver(),
-      _SliderSetting(
-        title: "Specular / Highlight".tl,
-        settingsIndex: "liquidGlassSpecular",
-        min: 0,
-        max: 2,
-        interval: 0.05,
-        onChanged: _rebuildGlass,
-      ).toSliver(),
+      if (!native) ...[
+        SelectSetting(
+          title: "Glass Quality".tl,
+          settingKey: "liquidGlassQuality",
+          optionTranslation: {
+            "adaptive": "Adaptive".tl,
+            "premium": "Premium (High)".tl,
+            "standard": "Standard".tl,
+            "minimal": "Power Saving (Minimal)".tl,
+          },
+          onChanged: _rebuildGlass,
+        ).toSliver(),
+        _SliderSetting(
+          title: "Blur Strength".tl,
+          settingsIndex: "liquidGlassBlur",
+          min: 0,
+          max: 4,
+          interval: 0.1,
+          onChanged: _rebuildGlass,
+        ).toSliver(),
+        _SliderSetting(
+          title: "Frost Strength".tl,
+          settingsIndex: "liquidGlassFrost",
+          min: 0,
+          max: 30,
+          interval: 1,
+          onChanged: _rebuildGlass,
+        ).toSliver(),
+        _SliderSetting(
+          title: "Tint Opacity".tl,
+          settingsIndex: "liquidGlassOpacity",
+          min: 0.05,
+          max: 0.95,
+          interval: 0.01,
+          onChanged: _rebuildGlass,
+        ).toSliver(),
+        _SliderSetting(
+          title: "Thickness / Refraction Depth".tl,
+          settingsIndex: "liquidGlassThickness",
+          min: 10,
+          max: 60,
+          interval: 1,
+          onChanged: _rebuildGlass,
+        ).toSliver(),
+        _SliderSetting(
+          title: "Refractive Index".tl,
+          settingsIndex: "liquidGlassRefraction",
+          min: 1.05,
+          max: 1.5,
+          interval: 0.01,
+          onChanged: _rebuildGlass,
+        ).toSliver(),
+        _SliderSetting(
+          title: "Specular / Highlight".tl,
+          settingsIndex: "liquidGlassSpecular",
+          min: 0,
+          max: 2,
+          interval: 0.05,
+          onChanged: _rebuildGlass,
+        ).toSliver(),
+      ],
       _SliderSetting(
         title: "Dock Side Margin".tl,
         settingsIndex: "liquidGlassDockMargin",
