@@ -1,0 +1,54 @@
+name: macOS package startup smoke
+on:
+  push:
+    branches: [codex/macos-smoke-1.7.7]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  smoke:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - name: Download verified macOS package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 40647283860 --repo "$GITHUB_REPOSITORY" --name venera-desktop-macos --dir artifacts
+          mkdir unpack smoke-results
+          ditto -x -k artifacts/venera-1.7.7-macos-universal.zip unpack
+          codesign --verify --deep --strict unpack/venera.app
+      - name: Launch application and check for a visible window
+        run: |
+          VENERA_SMOKE_BIN="$PWD/unpack/venera.app/Contents/MacOS/venera"
+          "$VENERA_SMOKE_BIN" > smoke-results/startup.log 2>&1 &
+          VENERA_SMOKE_PID=$!
+          echo "$VENERA_SMOKE_PID" > "$RUNNER_TEMP/venera-smoke-pid"
+          sleep 20
+          if ! kill -0 "$VENERA_SMOKE_PID" 2>/dev/null; then
+            cat smoke-results/startup.log
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/check-venera-window.swift" <<'SWIFT'
+          import Foundation
+          import CoreGraphics
+          let pid = Int(CommandLine.arguments[1])!
+          let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+          let own = windows.filter { ($0[kCGWindowOwnerPID as String] as? Int) == pid }
+          guard !own.isEmpty else { fatalError("Venera did not show an onscreen window") }
+          print("Visible Venera windows: \(own.count)")
+          SWIFT
+          swift "$RUNNER_TEMP/check-venera-window.swift" "$VENERA_SMOKE_PID" > smoke-results/window-check.txt
+          screencapture -x smoke-results/macos.png || true
+          cat smoke-results/window-check.txt
+      - name: Stop the smoke-test application
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/venera-smoke-pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/venera-smoke-pid")" 2>/dev/null || true
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-startup-smoke
+          path: smoke-results/
