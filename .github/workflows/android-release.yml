@@ -1,0 +1,122 @@
+name: Publish Android release
+run-name: Publish Android from ${{ github.ref_name }}
+on:
+  workflow_dispatch:
+  push:
+    branches: [glass-cloud]
+    paths:
+      - tool/android_release.json
+      - .github/workflows/android-release.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate requested version
+        id: version
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          data = json.loads(Path('tool/android_release.json').read_text())
+          version = re.search(r'^version:\s*(\S+)', Path('pubspec.yaml').read_text(), re.M)[1]
+          assert version == f"{data['version']}+{data['build']}", 'Release request and pubspec version differ'
+          assert data['tag'] == f"v{data['version']}-glass", 'Unexpected release tag'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"version={data['version']}\ntag={data['tag']}\n")
+          PY
+      - name: Verify original signing secrets are available
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEY_PROPERTIES: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+        run: python tool/prepare_android_signing.py
+
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.4'
+          cache: true
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y libsqlite3-dev
+      - run: flutter pub get
+      - run: dart run tool/check_backup_core.dart
+      - run: flutter test
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+  build:
+    needs: [validate, test]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.4'
+          cache: true
+      - name: Configure original signing credentials
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEY_PROPERTIES: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+        run: python tool/prepare_android_signing.py
+      - name: Install requested Rust toolchain
+        run: rustup show
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - name: Verify package identity and compatibility with 1.7.6
+        run: python tool/verify_android_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release-${{ needs.validate.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+      - name: Remove temporary signing credentials
+        if: always()
+        run: |
+          rm -f android/key.properties
+          rm -f "$RUNNER_TEMP/venera-release.jks"
+
+  publish:
+    needs: [validate, test, build]
+    if: github.ref == 'refs/heads/glass-cloud'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-release-${{ needs.validate.outputs.version }}
+          path: dist/
+      - name: Publish verified APKs and mark the version latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft > existing-release.json 2>/dev/null; then
+            python -c "import json; assert json.load(open('existing-release.json'))['isDraft'], 'This version is already published; refusing to replace it'"
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Venera Glass $VERSION" --notes-file tool/release_notes_1.7.7.md --latest
+          fi

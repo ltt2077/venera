@@ -76,7 +76,7 @@ class _AboutSettingsState extends State<AboutSettings> {
           title: const Text("Github"),
           trailing: const Icon(Icons.open_in_new),
           onTap: () {
-            launchUrlString("https://github.com/venera-app/venera");
+            launchUrlString(appRepositoryUrl);
           },
         ).toSliver(),
         ListTile(
@@ -92,15 +92,8 @@ class _AboutSettingsState extends State<AboutSettings> {
 }
 
 Future<bool> checkUpdate() async {
-  var res = await AppDio()
-      .get("https://cdn.jsdelivr.net/gh/venera-app/venera@master/pubspec.yaml");
-  if (res.statusCode == 200) {
-    var data = loadYaml(res.data);
-    if (data["version"] != null) {
-      return _compareVersion(data["version"].split("+")[0], App.version);
-    }
-  }
-  return false;
+  final res = await AppDio().get(appLatestReleaseApi);
+  return res.statusCode == 200 && hasPublishedAppUpdate(res.data, App.version);
 }
 
 Future<void> checkUpdateUi([bool showMessageIfNoUpdate = true, bool delay = false]) async {
@@ -123,8 +116,7 @@ Future<void> checkUpdateUi([bool showMessageIfNoUpdate = true, bool delay = fals
                 Button.text(
                   onPressed: () {
                     Navigator.pop(context);
-                    launchUrlString(
-                        "https://github.com/venera-app/venera/releases");
+                    launchUrlString(appReleasesUrl);
                   },
                   child: Text("Update".tl),
                 ),
@@ -137,19 +129,4 @@ Future<void> checkUpdateUi([bool showMessageIfNoUpdate = true, bool delay = fals
   } catch (e, s) {
     Log.error("Check Update", e.toString(), s);
   }
-}
-
-/// return true if version1 > version2
-bool _compareVersion(String version1, String version2) {
-  var v1 = version1.split(".");
-  var v2 = version2.split(".");
-  for (var i = 0; i < v1.length; i++) {
-    if (int.parse(v1[i]) > int.parse(v2[i])) {
-      return true;
-    }
-    if (int.parse(v1[i]) < int.parse(v2[i])) {
-      return false;
-    }
-  }
-  return false;
 }
