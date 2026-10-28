@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/components/window_frame.dart';
@@ -8,6 +10,7 @@ import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/utils/cloud_storage/cloud_factory.dart';
+import 'package:venera/utils/cloud_storage/backup_policy.dart';
 import 'package:venera/utils/cloud_storage/cloud_provider.dart';
 import 'package:venera/utils/data.dart';
 import 'package:venera/utils/ext.dart';
@@ -46,9 +49,9 @@ class SyncSummary {
 /// Supports multi-profile failover and smart mtime/version sync.
 class DataSync with ChangeNotifier {
   DataSync._() {
-    if (isEnabled) {
-      syncNow();
-    }
+    scheduleMicrotask(() {
+      if (isEnabled && !isImportingAppData) syncNow();
+    });
     LocalFavoritesManager().addListener(onDataChanged);
     ComicSourceManager().addListener(onDataChanged);
     if (App.isDesktop) {
@@ -59,13 +62,50 @@ class DataSync with ChangeNotifier {
     }
   }
 
+  Timer? _autoSyncTimer;
+  bool _autoSyncPending = false;
+  int _changeGeneration = 0;
+
   void onDataChanged() {
-    if (isEnabled) {
-      syncNow();
-    }
+    if (isImportingAppData) return;
+    _changeGeneration++;
+    appdata.implicitData['cloudDataDirty'] = true;
+    appdata.implicitData['cloudLocalDataMtime'] =
+        DateTime.now().millisecondsSinceEpoch;
+    appdata.writeImplicitData();
+    if (!isEnabled) return;
+    _autoSyncPending = true;
+    _scheduleAutoSync();
+  }
+
+  void cancelScheduledSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
+    _autoSyncPending = false;
+  }
+
+  void _scheduleAutoSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = Timer(const Duration(seconds: 2), () async {
+      if (!isEnabled || isImportingAppData) {
+        cancelScheduledSync();
+        return;
+      }
+      if (isUploading || isDownloading) {
+        _scheduleAutoSync();
+        return;
+      }
+      _autoSyncPending = false;
+      _autoSyncTimer = null;
+      await syncNow();
+    });
   }
 
   bool _handleWindowClose() {
+    if (_autoSyncPending && isEnabled) {
+      cancelScheduledSync();
+      syncNow();
+    }
     if (_isUploading || _isDownloading) {
       _showWindowCloseDialog();
       return false;
@@ -131,8 +171,10 @@ class DataSync with ChangeNotifier {
 
   Future<Res<bool>> _withFailover(
     Future<Res<bool>> Function(
-            CloudStorageProvider provider, CloudProfile profile)
-        action,
+      CloudStorageProvider provider,
+      CloudProfile profile,
+    )
+    action,
   ) async {
     final order = CloudProfileStore.failoverOrder();
     if (order.isEmpty) {
@@ -153,9 +195,15 @@ class DataSync with ChangeNotifier {
           return res;
         }
         errors.add(
-            '${profile.name} (${profile.providerLabel}): ${res.errorMessage}');
+          '${profile.name} (${profile.providerLabel}): ${res.errorMessage}',
+        );
         Log.warning(
-            'Cloud Sync', 'profile ${profile.name} failed: ${res.errorMessage}');
+          'Cloud Sync',
+          'profile ${profile.name} failed: ${res.errorMessage}',
+        );
+      } on CloudSyncConflictException catch (e) {
+        _lastError = e.message;
+        return Res<bool>.error(e.message);
       } catch (e, s) {
         Log.error('Cloud Sync', e, s);
         errors.add('${profile.name} (${profile.providerLabel}): $e');
@@ -166,11 +214,7 @@ class DataSync with ChangeNotifier {
     return Res<bool>.error(msg);
   }
 
-  int _parseVersion(String name) {
-    // `{day}-{version}.venera`
-    final mid = name.split('-').elementAtOrNull(1)?.split('.').first;
-    return int.tryParse(mid ?? '') ?? -1;
-  }
+  int _parseVersion(String name) => backupVersion(name);
 
   DateTime? _bestRemoteTime(CloudRemoteFile f) {
     if (f.modified != null) return f.modified;
@@ -183,6 +227,9 @@ class DataSync with ChangeNotifier {
   }
 
   Future<Res<bool>> smartSync() async {
+    if (isImportingAppData) {
+      return const Res<bool>.error('A restore is in progress');
+    }
     if (_haveWaitingTask) return const Res(true);
     while (isDownloading || isUploading) {
       _haveWaitingTask = true;
@@ -206,7 +253,7 @@ class DataSync with ChangeNotifier {
               : null;
 
           if (files.isEmpty) {
-            final up = await _doUpload(provider);
+            final up = await _doUpload(provider, existing: files);
             if (up.error) return up;
             _lastSummary = SyncSummary(
               uploaded: 1,
@@ -216,53 +263,23 @@ class DataSync with ChangeNotifier {
             return const Res(true);
           }
 
-          files.sort((a, b) {
-            final ta = _bestRemoteTime(a);
-            final tb = _bestRemoteTime(b);
-            if (ta != null && tb != null) return tb.compareTo(ta);
-            return b.name.compareTo(a.name);
-          });
+          files.sort(compareBackups);
           final newest = files.first;
           final remoteVersion = _parseVersion(newest.name);
           final remoteMtime = _bestRemoteTime(newest);
 
-          // Decide direction.
-          var wantDownload = false;
-          var wantUpload = false;
-          var skip = false;
-
-          if (remoteVersion > localVersion) {
-            wantDownload = true;
-          } else if (remoteVersion >= 0 && remoteVersion < localVersion) {
-            wantUpload = true;
-          } else if (remoteVersion == localVersion && remoteVersion >= 0) {
-            if (remoteMtime != null && localMtime != null) {
-              final diff = remoteMtime.difference(localMtime).inSeconds;
-              if (diff > 2) {
-                wantDownload = true;
-              } else if (diff < -2) {
-                wantUpload = true;
-              } else {
-                skip = true;
-              }
-            } else if (remoteMtime != null && localMtime == null) {
-              // Prefer remote when we have no local stamp yet but versions match.
-              skip = true;
-            } else {
-              skip = true;
-            }
-          } else {
-            // Unknown remote version → compare mtime if possible, else upload.
-            if (remoteMtime != null &&
-                localMtime != null &&
-                remoteMtime.isAfter(localMtime.add(const Duration(seconds: 2)))) {
-              wantDownload = true;
-            } else {
-              wantUpload = true;
-            }
+          final direction = syncDirection(
+            localVersion: localVersion,
+            remoteVersion: remoteVersion,
+            localDirty: appdata.implicitData['cloudDataDirty'] == true,
+            localTime: localMtime,
+            remoteTime: remoteMtime,
+          );
+          if (direction == SyncDirection.conflict) {
+            throw CloudSyncConflictException();
           }
 
-          if (skip) {
+          if (direction == SyncDirection.skip) {
             _lastSummary = SyncSummary(
               skipped: 1,
               profileName: profile.name,
@@ -271,7 +288,7 @@ class DataSync with ChangeNotifier {
             Log.info('Data Sync', 'Smart sync skip via ${profile.name}');
             return const Res(true);
           }
-          if (wantDownload) {
+          if (direction == SyncDirection.download) {
             final down = await _doDownload(provider, preferred: newest);
             if (down.error) return down;
             _lastSummary = SyncSummary(
@@ -281,8 +298,8 @@ class DataSync with ChangeNotifier {
             );
             return const Res(true);
           }
-          if (wantUpload) {
-            final up = await _doUpload(provider);
+          if (direction == SyncDirection.upload) {
+            final up = await _doUpload(provider, existing: files);
             if (up.error) return up;
             _lastSummary = SyncSummary(
               uploaded: 1,
@@ -292,6 +309,8 @@ class DataSync with ChangeNotifier {
             return const Res(true);
           }
           return const Res(true);
+        } on CloudSyncConflictException {
+          rethrow;
         } catch (e, s) {
           Log.error('Smart Sync', e, s);
           return Res<bool>.error(e.toString());
@@ -304,30 +323,41 @@ class DataSync with ChangeNotifier {
     }
   }
 
-  Future<Res<bool>> _doUpload(CloudStorageProvider provider) async {
-    appdata.settings['dataVersion']++;
+  Future<Res<bool>> _doUpload(
+    CloudStorageProvider provider, {
+    List<CloudRemoteFile>? existing,
+  }) async {
+    final files = existing ?? await provider.listDataFiles();
+    var version = (appdata.settings['dataVersion'] as int?) ?? 0;
+    for (final file in files) {
+      final remoteVersion = backupVersion(file.name);
+      if (remoteVersion > version) version = remoteVersion;
+    }
+    appdata.settings['dataVersion'] = version + 1;
     await appdata.saveData(false);
-    var data = await exportAppData(
-      appdata.settings['disableSyncFields'].toString().isNotEmpty,
-    );
+    final generation = _changeGeneration;
+    final data = await exportAppData(true);
     var time = (DateTime.now().millisecondsSinceEpoch ~/ 86400000).toString();
     var filename = '$time-${appdata.settings['dataVersion']}.venera';
 
-    var files = await provider.listDataFiles();
-    files = files.where((e) => e.name.endsWith('.venera')).toList();
-    var old = files.firstWhereOrNull((e) => e.name.startsWith("$time-"));
-    if (old != null) {
-      await provider.deleteFile(old.name);
+    try {
+      await uploadBackupSafely(
+        provider: provider,
+        filename: filename,
+        bytes: await data.readAsBytes(),
+        existing: files,
+        onCleanupError: (error) =>
+            Log.warning('Cloud Sync', 'Backup cleanup failed: $error'),
+      );
+    } finally {
+      await data.deleteIgnoreError();
     }
-    if (files.length >= 10) {
-      files.sort((a, b) => a.name.compareTo(b.name));
-      await provider.deleteFile(files.first.name);
+    if (_changeGeneration == generation) {
+      appdata.implicitData['cloudDataDirty'] = false;
     }
-    await provider.uploadFile(filename, await data.readAsBytes());
-    data.deleteIgnoreError();
     appdata.implicitData['cloudLocalDataMtime'] =
         DateTime.now().millisecondsSinceEpoch;
-    appdata.writeImplicitData();
+    await appdata.writeImplicitData();
     Log.info("Upload Data", "Data uploaded via ${provider.id}");
     return const Res(true);
   }
@@ -339,42 +369,39 @@ class DataSync with ChangeNotifier {
     CloudRemoteFile? file = preferred;
     if (file == null) {
       var files = await provider.listDataFiles();
-      files.sort((a, b) {
-        final ta = _bestRemoteTime(a);
-        final tb = _bestRemoteTime(b);
-        if (ta != null && tb != null) return tb.compareTo(ta);
-        return b.name.compareTo(a.name);
-      });
+      files.sort(compareBackups);
       file = files.firstWhereOrNull((e) => e.name.endsWith('.venera'));
     }
     if (file == null) {
       throw 'No data file found';
     }
-    var version = _parseVersion(file.name);
-    if (version >= 0) {
-      var currentVersion = appdata.settings['dataVersion'];
-      if (currentVersion != null &&
-          version <= currentVersion &&
-          preferred == null) {
-        // Forced download path still respects version unless smart chose it.
-        Log.info("Data Sync", 'No new data to download');
-        return const Res(true);
-      }
-    }
     Log.info("Data Sync", "Downloading via ${provider.id}");
+    final generation = _changeGeneration;
     var bytes = await provider.downloadFile(file.name);
-    var localFile = File(FilePath.join(App.cachePath, file.name));
-    await localFile.writeAsBytes(bytes);
-    await importAppData(localFile, true);
-    await localFile.delete();
+    if (_changeGeneration != generation) throw CloudSyncConflictException();
+    final downloadDir = await Directory(
+      App.cachePath,
+    ).createTemp('venera-download-');
+    final localFile = downloadDir.joinFile('data.venera');
+    try {
+      await localFile.writeAsBytes(bytes);
+      // The smart direction has already been chosen; an explicit download must
+      // also restore equal/older versions instead of reporting a skipped success.
+      await restoreAppData(localFile, restoreCloudSettings: false);
+    } finally {
+      await downloadDir.deleteIgnoreError(recursive: true);
+    }
     appdata.implicitData['cloudLocalDataMtime'] =
         (file.modified ?? DateTime.now()).millisecondsSinceEpoch;
-    appdata.writeImplicitData();
+    await appdata.writeImplicitData();
     Log.info("Data Sync", "Data downloaded successfully");
     return const Res(true);
   }
 
   Future<Res<bool>> uploadData() async {
+    if (isImportingAppData) {
+      return const Res<bool>.error('A restore is in progress');
+    }
     if (isDownloading) return const Res(true);
     if (_haveWaitingTask) return const Res(true);
     while (isUploading) {
@@ -407,6 +434,9 @@ class DataSync with ChangeNotifier {
   }
 
   Future<Res<bool>> downloadData() async {
+    if (isImportingAppData) {
+      return const Res<bool>.error('A restore is in progress');
+    }
     if (_haveWaitingTask) return const Res(true);
     while (isDownloading || isUploading) {
       _haveWaitingTask = true;
@@ -421,8 +451,10 @@ class DataSync with ChangeNotifier {
         try {
           final r = await _doDownload(provider);
           if (!r.error) {
-            _lastSummary =
-                SyncSummary(downloaded: 1, profileName: profile.name);
+            _lastSummary = SyncSummary(
+              downloaded: 1,
+              profileName: profile.name,
+            );
           }
           return r;
         } catch (e, s) {

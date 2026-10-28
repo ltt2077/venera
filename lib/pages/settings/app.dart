@@ -100,9 +100,17 @@ class _AppSettingsState extends State<AppSettings> {
           title: "Export App Data".tl,
           callback: () async {
             var controller = showLoadingDialog(context);
-            var file = await exportAppData(false);
-            await saveFile(filename: "data.venera", file: file);
-            controller.close();
+            File? file;
+            try {
+              file = await exportAppData(false);
+              await saveFile(filename: 'data.venera', file: file);
+            } catch (e, s) {
+              Log.error('Export data', e, s);
+              context.showMessage(message: e.toString());
+            } finally {
+              if (file != null) await file.deleteIgnoreError();
+              controller.close();
+            }
           },
           actionTitle: 'Export'.tl,
         ).toSliver(),
