@@ -20,6 +20,9 @@ class BlurEffect extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (useGlassProfile && Glass.usesNative(context)) {
+      return GlassSurface(borderRadius: borderRadius, child: child);
+    }
     var sigma = blur;
     if (useGlassProfile && Glass.shouldBlur(context)) {
       sigma = Glass.blurSigma(context);

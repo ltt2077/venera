@@ -174,6 +174,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
 
     final glassOn = Glass.shouldBlur(context);
     return BlurEffect(
+      useGlassProfile: true,
       blur: glassOn ? Glass.blurSigma(context) : 15,
       child: Container(
         padding: EdgeInsets.only(top: context.padding.top),
@@ -558,6 +559,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
 
     final glassOn = Glass.shouldBlur(context);
     return BlurEffect(
+      useGlassProfile: true,
       blur: glassOn ? Glass.blurSigma(context) : 15,
       child: Container(
         decoration: BoxDecoration(

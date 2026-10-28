@@ -560,11 +560,13 @@ class _SingleBottomNaviWidget extends StatefulWidget {
 class _SingleBottomNaviWidgetState extends State<_SingleBottomNaviWidget>
     with SingleTickerProviderStateMixin {
   late AnimationController controller;
+  late final CurvedAnimation _curve;
 
   bool isHovering = false;
 
   @override
   void dispose() {
+    _curve.dispose();
     controller.dispose();
     super.dispose();
   }
@@ -589,12 +591,13 @@ class _SingleBottomNaviWidgetState extends State<_SingleBottomNaviWidget>
       vsync: this,
       duration: _fastAnimationDuration,
     );
+    _curve = CurvedAnimation(parent: controller, curve: Curves.ease);
   }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: CurvedAnimation(parent: controller, curve: Curves.ease),
+      animation: _curve,
       builder: (context, child) {
         return MouseRegion(
           cursor: SystemMouseCursors.click,

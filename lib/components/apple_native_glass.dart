@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 /// A small number of OS-composited chrome surfaces, never scrolling list cells.
@@ -11,8 +12,9 @@ class AppleNativeGlass {
     supported = false;
     if (kIsWeb ||
         (defaultTargetPlatform != TargetPlatform.iOS &&
-            defaultTargetPlatform != TargetPlatform.macOS))
+            defaultTargetPlatform != TargetPlatform.macOS)) {
       return;
+    }
     try {
       supported = await channel.invokeMethod<bool>('isSupported') ?? false;
     } on PlatformException {

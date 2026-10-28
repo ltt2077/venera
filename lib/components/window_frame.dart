@@ -179,7 +179,9 @@ class _WindowFrameState extends State<WindowFrame> {
                       ),
                     ),
                   );
-                  if (glassOn) {
+                  if (glassOn && Glass.usesNative(context)) {
+                    titleBar = GlassSurface(child: titleBar);
+                  } else if (glassOn) {
                     titleBar = ClipRect(
                       child: BackdropFilter(
                         filter: ui.ImageFilter.blur(
