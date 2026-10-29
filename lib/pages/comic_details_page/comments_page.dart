@@ -83,6 +83,7 @@ class _CommentsPageState extends State<CommentsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       resizeToAvoidBottomInset: false,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: Appbar(
         title: Text("Comments".tl),
         style: AppbarStyle.shadow,

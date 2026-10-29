@@ -88,13 +88,20 @@ class SideBarRoute<T> extends PopupRoute<T> {
     }
 
     final sideBarWidth = math.min(width, MediaQuery.of(context).size.width);
+    final scheme = Theme.of(context).colorScheme;
+    // Theme surface — never surfaceTint. surfaceTint is the M3 elevation
+    // overlay / primary-ish color; with liquid glass, ThemeData.canvasColor is
+    // transparent so a bare Material() let that tint paint the whole panel
+    // (pale periwinkle + light onSurface text = unreadable comments / reader
+    // settings). Keep an optional light tint overlay via useSurfaceTintColor.
+    final panelColor = scheme.surface;
 
     body = Container(
       decoration: BoxDecoration(
         borderRadius: showSideBar
             ? const BorderRadius.horizontal(left: Radius.circular(16))
             : null,
-        color: Theme.of(context).colorScheme.surfaceTint,
+        color: panelColor,
         boxShadow: context.brightness == ui.Brightness.dark ? [
           BoxShadow(
             color: Colors.white.withAlpha(50),
@@ -108,6 +115,9 @@ class SideBarRoute<T> extends PopupRoute<T> {
       height: MediaQuery.of(context).size.height,
       child: GestureDetector(
         child: Material(
+          color: panelColor,
+          elevation: 0,
+          shadowColor: Colors.transparent,
           child: ClipRect(
             clipBehavior: Clip.antiAlias,
             child: Container(
@@ -120,7 +130,7 @@ class SideBarRoute<T> extends PopupRoute<T> {
                           MediaQuery.of(context).viewInsets.bottom
                       : 0),
               color: useSurfaceTintColor
-                  ? Theme.of(context).colorScheme.surfaceTint.withAlpha(20)
+                  ? scheme.surfaceTint.withAlpha(20)
                   : null,
               child: body,
             ),

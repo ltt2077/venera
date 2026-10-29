@@ -1,3 +1,19 @@
+# Venera Glass fork — 1.7.9+179
+
+## 1.7.9 — Fix low-contrast blue side panels (comments / reader settings)
+
+### Root cause
+`SideBarRoute` painted its panel with `ColorScheme.surfaceTint` (M3 elevation / primary-ish tint). Liquid glass sets `ThemeData.canvasColor` / `scaffoldBackgroundColor` to transparent, so a bare `Material()` no longer covered that tint. Comment lists and in-reader **阅读中** settings showed a pale periwinkle panel under light `onSurface` text — unreadable. App bars / footers that explicitly used `surface` stayed dark and looked fine.
+
+### Fix
+- Side-bar panels use opaque theme **`ColorScheme.surface`** for both the outer fill and `Material.color` (shared path for comments, chapter comments, reader settings, and any other `showSideBar` page).
+- Optional `useSurfaceTintColor` remains a light overlay only — never the base fill.
+- BiliPai floating dock and opaque `AppPageRoute` secondary-page behavior unchanged.
+
+### 中文摘要
+- 修评论页、阅读中设置等侧栏「浅紫蓝底 + 浅色字」看不清：侧栏改用主题 `surface` 实底，不再用 `surfaceTint`。
+- 悬浮底栏、次级路由不透明行为保持不变。
+
 # Venera Glass fork — 1.7.7+177
 
 - Load main tabs on first visit, retain state and pause inactive tickers.

@@ -91,6 +91,7 @@ class _ChapterCommentsPageState extends State<ChapterCommentsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       resizeToAvoidBottomInset: false,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: Appbar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
