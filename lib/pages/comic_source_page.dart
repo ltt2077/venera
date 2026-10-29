@@ -401,7 +401,7 @@ class _ComicSourceListState extends State<_ComicSourceList> {
       if (mounted && request == _request) {
         context.showMessage(message: e.toString());
         setState(() {
-          entries = previous ?? [];
+          entries = previous;
         });
       }
     }

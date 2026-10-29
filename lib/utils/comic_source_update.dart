@@ -9,7 +9,9 @@ class ComicSourceUpdateQueue {
     return _active.putIfAbsent(key, () {
       final pending = _tail.then((_) => update());
       _tail = pending.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-      return pending.whenComplete(() => _active.remove(key));
+      return pending.whenComplete(() {
+        _active.remove(key);
+      });
     });
   }
 }
