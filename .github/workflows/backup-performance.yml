@@ -25,6 +25,9 @@ jobs:
       - run: flutter pub get
       - run: dart run tool/check_backup_core.dart
       - run: node tool/check_xkcd_source.mjs
+      - name: Check live xkcd API and reading image
+        continue-on-error: true
+        run: node tool/check_xkcd_source.mjs --live
       - run: flutter test
       - name: Analyze project
         run: flutter analyze --no-fatal-infos --no-fatal-warnings

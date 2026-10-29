@@ -20,15 +20,13 @@ import 'package:venera/utils/translations.dart';
 class ComicSourcePage extends StatelessWidget {
   const ComicSourcePage({super.key});
 
-  static final _updating = <String, Future<void>>{};
+  static final _updateQueue = ComicSourceUpdateQueue();
 
   static Future<void> update(ComicSource source, [bool showLoading = true]) {
-    return _updating.putIfAbsent(
-      source.key,
-      () => _update(source, showLoading).whenComplete(() {
-        _updating.remove(source.key);
-      }),
-    );
+    return _updateQueue.run(source.key, () {
+      final current = ComicSource.find(source.key);
+      return current == null ? Future.value() : _update(current, showLoading);
+    });
   }
 
   static Future<void> _update(
@@ -80,6 +78,8 @@ class ComicSourcePage extends StatelessWidget {
           return candidate;
         },
         restoreRuntime: manager.reload,
+        isCancelled: () =>
+            cancel || !identical(manager.find(source.key), source),
       );
       manager.replace(updated);
       parser.initializeSource(updated);

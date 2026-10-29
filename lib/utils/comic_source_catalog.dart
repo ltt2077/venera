@@ -88,8 +88,9 @@ bool isNewerSourceVersion(String candidate, String installed) {
   final suffixA = a[4];
   final suffixB = b[4];
   if (suffixA == suffixB) return false;
-  if (suffixA == null) return suffixB != 'hotfix';
-  if (suffixB == null) return suffixA == 'hotfix';
+  bool hotfix(String value) => value == 'hotfix' || value.startsWith('hotfix.');
+  if (suffixA == null) return !hotfix(suffixB!);
+  if (suffixB == null) return hotfix(suffixA);
   final partsA = suffixA.split('.');
   final partsB = suffixB.split('.');
   for (var i = 0; i < partsA.length && i < partsB.length; i++) {

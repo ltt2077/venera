@@ -30,8 +30,9 @@ The JSON file should have the following format:
 [
   {
     "name": "Source Name",
+    "key": "source_unique_key",
     "url": "https://example.com/source.js",
-    "filename": "Relative path to the source file",
+    "fileName": "Relative path to the source file",
     "version": "1.0.0",
     "description": "A brief description of the source"
   }
@@ -40,6 +41,13 @@ The JSON file should have the following format:
 
 Only one of `url` and `filename` should be provided.
 The description field is optional.
+
+The app accepts both `fileName` and `filename`. Relative locations are resolved
+against the URL of the loaded catalog (including redirects). Each entry needs a
+unique `key` matching its script and a three-part version such as `1.2.3`.
+
+For the Glass fork's optional source list, installation and update workflow, see
+[1.7.8 maintenance notes](iteration_1.7.8.md).
 
 ## Create a Comic Source
 

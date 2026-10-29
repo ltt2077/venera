@@ -34,3 +34,26 @@ assert.equal(details.description, 'Alt text\n\nTranscript');
 assert.equal(details.url, 'https://xkcd.com/403/');
 assert.equal((await source.comic.loadEp('403', null)).images[0], 'https://imgs.xkcd.com/comics/403.png');
 console.log('xkcd browsing, pagination, search, details, images, missing #404, and cache checks passed');
+
+if (process.argv.includes('--live')) {
+  const liveContext = vm.createContext({
+    ComicSource: class {},
+    ComicDetails: class { constructor(data) { Object.assign(this, data); } },
+    Network: { get: async url => {
+      const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      return { status: response.status, body: await response.text() };
+    } },
+  });
+  const live = vm.runInContext(fs.readFileSync('comic_sources/xkcd.js', 'utf8') + '\nnew Xkcd()', liveContext);
+  const recent = await live.explore[0].load(1);
+  assert.equal(recent.comics.length, 4);
+  const search = await live.search.load('614', [], 1);
+  assert.equal(search.comics[0].id, '614');
+  const details = await live.comic.loadInfo('614');
+  const chapter = await live.comic.loadEp('614', null);
+  assert.equal(chapter.images[0], details.cover);
+  const image = await fetch(chapter.images[0], { signal: AbortSignal.timeout(15000) });
+  assert.equal(image.status, 200);
+  assert.ok((await image.arrayBuffer()).byteLength > 1000);
+  console.log('Live xkcd latest page, #614 search/details/reading image download passed');
+}

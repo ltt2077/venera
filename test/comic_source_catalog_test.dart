@@ -58,6 +58,7 @@ void main() {
       expect(isNewerSourceVersion('1.2.0', 'unknown'), false);
       expect(isNewerSourceVersion('1.2.1', '1.2.0'), true);
       expect(isNewerSourceVersion('1.2.0-hotfix', '1.2.0'), true);
+      expect(isNewerSourceVersion('1.2.0-hotfix.1', '1.2.0'), true);
       expect(isNewerSourceVersion('1.2.0', '1.2.0-hotfix'), false);
       expect(isNewerSourceVersion('1.2.0', '1.2.0-beta.10'), true);
       expect(isNewerSourceVersion('1.2.0-beta.10', '1.2.0-beta.2'), true);
