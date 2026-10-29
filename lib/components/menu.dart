@@ -1,6 +1,7 @@
 part of "components.dart";
 
 void showMenuX(BuildContext context, Offset location, List<MenuEntry> entries) {
+  if (entries.isEmpty) return;
   Navigator.of(context, rootNavigator: true).push(_MenuRoute(entries, location));
 }
 
@@ -59,10 +60,11 @@ class _MenuRoute<T> extends PopupRoute<T> {
               ],
             ),
             child: BlurEffect(
+              useGlassProfile: true,
               borderRadius: BorderRadius.circular(4),
               child: Material(
-                color: context.colorScheme.surface.toOpacity(
-                  Glass.shouldBlur(context) ? Glass.fillOpacity(context) : 0.92),
+                color: Glass.usesNative(context) ? Colors.transparent : context.colorScheme.surface.toOpacity(
+                  Glass.shouldBlur(context) ? Glass.fillOpacity(context) : 1.0),
 
                 borderRadius: BorderRadius.circular(4),
                 child: Container(

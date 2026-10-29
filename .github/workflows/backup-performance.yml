@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [glass-cloud]
   push:
-    branches: [glass-cloud, codex/performance-backup-compat]
+    branches: [glass-cloud, codex/performance-backup-compat, codex/v1.7.8-maintenance]
 
 permissions:
   contents: read
@@ -24,11 +24,10 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: dart run tool/check_backup_core.dart
+      - run: node tool/check_xkcd_source.mjs
+      - name: Check live xkcd API and reading image
+        continue-on-error: true
+        run: node tool/check_xkcd_source.mjs --live
       - run: flutter test
-      - name: Analyze changed libraries
-        run: >-
-          flutter analyze --no-fatal-infos --no-fatal-warnings
-          lib/utils/backup_format.dart lib/utils/backup_database.dart
-          lib/utils/cloud_storage/backup_policy.dart lib/utils/data.dart
-          lib/utils/data_sync.dart lib/foundation/appdata.dart
-          lib/components/retained_tab_view.dart test
+      - name: Analyze project
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings

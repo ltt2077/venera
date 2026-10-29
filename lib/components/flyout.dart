@@ -182,13 +182,14 @@ class FlyoutContent extends StatelessWidget {
     final glassOn = Glass.shouldBlur(context);
     return IntrinsicWidth(
       child: BlurEffect(
+        useGlassProfile: true,
         blur: glassOn ? Glass.blurSigma(context) : 15,
         borderRadius: BorderRadius.circular(glassOn ? 14 : 8),
         child: Material(
           borderRadius: BorderRadius.circular(glassOn ? 14 : 8),
           type: MaterialType.card,
-          color: context.colorScheme.surface.toOpacity(
-            glassOn ? Glass.fillOpacity(context) : 0.82,
+          color: Glass.usesNative(context) ? Colors.transparent : context.colorScheme.surface.toOpacity(
+            glassOn ? Glass.fillOpacity(context) : 1.0,
           ),
           child: Container(
             constraints: const BoxConstraints(
