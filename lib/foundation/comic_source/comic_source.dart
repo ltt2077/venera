@@ -14,6 +14,7 @@ import 'package:venera/foundation/res.dart';
 import 'package:venera/pages/category_comics_page.dart';
 import 'package:venera/pages/search_result_page.dart';
 import 'package:venera/utils/data_sync.dart';
+import 'package:venera/utils/comic_source_catalog.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/init.dart';
 import 'package:venera/utils/io.dart';
@@ -55,7 +56,7 @@ class ComicSourceManager with ChangeNotifier, Init {
     await JsEngine().ensureInit();
     final path = "${App.dataPath}/comic_source";
     if (!(await Directory(path).exists())) {
-      Directory(path).create();
+      await Directory(path).create(recursive: true);
       return;
     }
     await for (var entity in Directory(path).list()) {
@@ -87,6 +88,15 @@ class ComicSourceManager with ChangeNotifier, Init {
 
   void remove(String key) {
     _sources.removeWhere((element) => element.key == key);
+    _availableUpdates.remove(key);
+    notifyListeners();
+  }
+
+  void replace(ComicSource source) {
+    final index = _sources.indexWhere((item) => item.key == source.key);
+    if (index == -1) throw StateError('Source was removed during update');
+    _sources[index] = source;
+    _availableUpdates.remove(source.key);
     notifyListeners();
   }
 
@@ -96,7 +106,9 @@ class ComicSourceManager with ChangeNotifier, Init {
   final _availableUpdates = <String, String>{};
 
   void updateAvailableUpdates(Map<String, String> updates) {
-    _availableUpdates.addAll(updates);
+    _availableUpdates
+      ..clear()
+      ..addAll(updates);
     notifyListeners();
   }
 

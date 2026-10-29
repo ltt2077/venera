@@ -26,7 +26,7 @@ class BlurEffect extends StatelessWidget {
     var sigma = blur;
     if (useGlassProfile && Glass.shouldBlur(context)) {
       sigma = Glass.blurSigma(context);
-    } else if (!Glass.enabled && useGlassProfile) {
+    } else if (useGlassProfile && !Glass.shouldBlur(context)) {
       sigma = 0;
     }
     if (sigma <= 0) {

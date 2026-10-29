@@ -23,7 +23,7 @@ class Glass {
     if (!enabled) return false;
     final mq = MediaQuery.maybeOf(context);
     if (mq == null) return true;
-    if (mq.highContrast || mq.boldText) return false;
+    if (mq.highContrast || mq.boldText || mq.disableAnimations) return false;
     return true;
   }
 

@@ -2,41 +2,7 @@ part of 'comic_source.dart';
 
 /// return true if ver1 > ver2
 bool compareSemVer(String ver1, String ver2) {
-  ver1 = ver1.replaceFirst("-", ".");
-  ver2 = ver2.replaceFirst("-", ".");
-  List<String> v1 = ver1.split('.');
-  List<String> v2 = ver2.split('.');
-
-  for (int i = 0; i < 3; i++) {
-    int num1 = int.parse(v1[i]);
-    int num2 = int.parse(v2[i]);
-
-    if (num1 > num2) {
-      return true;
-    } else if (num1 < num2) {
-      return false;
-    }
-  }
-
-  var v14 = v1.elementAtOrNull(3);
-  var v24 = v2.elementAtOrNull(3);
-
-  if (v14 != v24) {
-    if (v14 == null && v24 != "hotfix") {
-      return true;
-    } else if (v14 == null) {
-      return false;
-    }
-    if (v24 == null) {
-      if (v14 == "hotfix") {
-        return true;
-      }
-      return false;
-    }
-    return v14.compareTo(v24) > 0;
-  }
-
-  return false;
+  return isNewerSourceVersion(ver1, ver2);
 }
 
 class ComicSourceParseException implements Exception {
@@ -57,7 +23,7 @@ class ComicSourceParser {
   String? _name;
 
   Future<ComicSource> createAndParse(String js, String fileName) async {
-    if (!fileName.endsWith("js")) {
+    if (!fileName.endsWith(".js")) {
       fileName = "$fileName.js";
     }
     var file = File(FilePath.join(App.dataPath, "comic_source", fileName));
@@ -83,7 +49,12 @@ class ComicSourceParser {
     }
   }
 
-  Future<ComicSource> parse(String js, String filePath) async {
+  Future<ComicSource> parse(
+    String js,
+    String filePath, {
+    String? replacingKey,
+    bool initialize = true,
+  }) async {
     js = js.replaceAll("\r\n", "\n");
     var line1 = js
         .split('\n')
@@ -105,6 +76,11 @@ class ComicSourceParser {
     var key =
         JsEngine().runCode("this['temp'].key") ??
         (throw ComicSourceParseException('key is required'));
+    if (replacingKey != null && key != replacingKey) {
+      throw ComicSourceParseException(
+        'Updated source key must remain $replacingKey',
+      );
+    }
     var version =
         JsEngine().runCode("this['temp'].version") ??
         (throw ComicSourceParseException('version is required'));
@@ -120,7 +96,7 @@ class ComicSourceParser {
       }
     }
     for (var source in ComicSource.all()) {
-      if (source.key == key) {
+      if (source.key == key && source.key != replacingKey) {
         throw ComicSourceParseException("key($key) already exists");
       }
     }
@@ -169,13 +145,22 @@ class ComicSourceParser {
 
     await source.loadData();
 
-    if (_checkExists("init")) {
-      Future.delayed(const Duration(milliseconds: 50), () {
-        JsEngine().runCode("ComicSource.sources.$_key.init()");
-      });
-    }
+    if (initialize) initializeSource(source);
 
     return source;
+  }
+
+  void initializeSource(ComicSource source) {
+    if (_checkExists("init")) {
+      Future.delayed(const Duration(milliseconds: 50), () {
+        if (!identical(ComicSource.find(source.key), source)) return;
+        try {
+          JsEngine().runCode("ComicSource.sources.${source.key}.init()");
+        } catch (e, s) {
+          Log.error('ComicSource init', '$e\n$s');
+        }
+      });
+    }
   }
 
   _checkKeyValidation() {
