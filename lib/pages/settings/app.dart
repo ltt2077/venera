@@ -117,27 +117,39 @@ class _AppSettingsState extends State<AppSettings> {
         _CallbackSetting(
           title: "Import App Data".tl,
           callback: () async {
-            var controller = showLoadingDialog(context);
-            var file = await selectFile(ext: ['venera', 'picadata']);
-            if (file != null) {
-              var cacheFile =
-                  File(FilePath.join(App.cachePath, "import_data_temp"));
-              await file.saveTo(cacheFile.path);
+            // Pick the file first. Showing a blocking loading dialog before the
+            // picker leaves SideStore/iOS file UI stuck behind the spinner.
+            final file = await selectFile(ext: ['venera', 'picadata']);
+            if (file == null) return;
+            if (!context.mounted) return;
+            final controller = showLoadingDialog(context);
+            final cacheFile =
+                File(FilePath.join(App.cachePath, "import_data_temp"));
+            try {
               try {
-                if (file.name.endsWith('picadata')) {
-                  await importPicaData(cacheFile);
-                } else {
-                  await importAppData(cacheFile);
-                }
-              } catch (e, s) {
-                Log.error("Import data", e.toString(), s);
-                context.showMessage(message: "Failed to import data".tl);
-              } finally {
-                cacheFile.deleteIgnoreError();
-                App.forceRebuild();
+                await file.saveTo(cacheFile.path);
+              } catch (_) {
+                // Cross-filesystem / security-scoped copies may need a byte path.
+                await File(file.path).copyMem(cacheFile.path);
               }
+              if (file.name.endsWith('picadata')) {
+                await importPicaData(cacheFile);
+              } else {
+                await importAppData(cacheFile);
+              }
+              if (context.mounted) {
+                context.showMessage(message: "Data imported successfully".tl);
+              }
+            } catch (e, s) {
+              Log.error("Import data", e.toString(), s);
+              if (context.mounted) {
+                context.showMessage(message: "Failed to import data".tl);
+              }
+            } finally {
+              await cacheFile.deleteIgnoreError();
+              controller.close();
+              App.forceRebuild();
             }
-            controller.close();
           },
           actionTitle: 'Import'.tl,
         ).toSliver(),

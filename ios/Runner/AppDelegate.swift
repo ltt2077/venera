@@ -24,13 +24,21 @@ import Foundation
     let glassChannel = FlutterMethodChannel(name: "venera/native_glass", binaryMessenger: messenger)
     glassChannel.setMethodCallHandler { call, result in
       if call.method == "isSupported" {
+        // UIGlassEffect ships with iOS 26+; device runtime decides.
         if #available(iOS 26.0, *) { result(true) } else { result(false) }
       } else {
         result(FlutterMethodNotImplemented)
       }
     }
+    // Always register via applicationRegistrar — registrar(forPlugin:) can be nil
+    // under UIScene/implicit engine and then UiKitView has no factory (no glass).
+    let glassFactory = VeneraGlassFactory(messenger: messenger)
+    engineBridge.applicationRegistrar.register(
+      glassFactory,
+      withId: "venera/native_glass_surface"
+    )
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "VeneraNativeGlass") {
-      registrar.register(VeneraGlassFactory(messenger: messenger), withId: "venera/native_glass_surface")
+      registrar.register(glassFactory, withId: "venera/native_glass_surface")
     }
 
     let methodChannel = FlutterMethodChannel(name: "venera/method_channel", binaryMessenger: messenger)
@@ -139,19 +147,26 @@ private class VeneraGlassView: NSObject, FlutterPlatformView {
 
   func update(_ args: [String: Any]) {
     parameters = args
-    surface.layer.cornerRadius = CGFloat((args["radius"] as? NSNumber)?.doubleValue ?? 0)
+    let radius = CGFloat((args["radius"] as? NSNumber)?.doubleValue ?? 0)
+    surface.layer.cornerRadius = radius
+    surface.layer.cornerCurve = .continuous
+    surface.clipsToBounds = radius > 0
     let dark = args["dark"] as? Bool ?? false
     surface.overrideUserInterfaceStyle = dark ? .dark : .light
+    let interactive = (args["interactive"] as? Bool) ?? (radius > 0)
     if UIAccessibility.isReduceTransparencyEnabled {
       surface.effect = nil
       surface.backgroundColor = dark ? .secondarySystemBackground : .systemBackground
     } else if #available(iOS 26.0, *) {
-      let effect = UIGlassEffect(style: .regular)
-      effect.isInteractive = false
+      // Native Liquid Glass (UIGlassEffect) — same family as system tab bars.
+      let styleName = (args["style"] as? String) ?? "regular"
+      let style: UIGlassEffect.Style = (styleName == "clear") ? .clear : .regular
+      let effect = UIGlassEffect(style: style)
+      effect.isInteractive = interactive
       surface.backgroundColor = .clear
       surface.effect = effect
     } else {
-      surface.effect = UIBlurEffect(style: .systemMaterial)
+      surface.effect = UIBlurEffect(style: dark ? .systemChromeMaterialDark : .systemChromeMaterialLight)
     }
   }
 

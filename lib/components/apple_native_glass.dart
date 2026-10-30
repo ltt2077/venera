@@ -3,32 +3,72 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
-/// A small number of OS-composited chrome surfaces, never scrolling list cells.
+/// OS-composited chrome via UIGlassEffect / NSGlassEffectView platform views.
 class AppleNativeGlass {
   static const channel = MethodChannel('venera/native_glass');
   static bool supported = false;
+  static bool _checked = false;
 
   static Future<void> initialize() async {
     supported = false;
+    _checked = false;
     if (kIsWeb ||
         (defaultTargetPlatform != TargetPlatform.iOS &&
             defaultTargetPlatform != TargetPlatform.macOS)) {
+      _checked = true;
       return;
+    }
+    // UIScene / implicit engine can register channels slightly after Dart starts.
+    for (var i = 0; i < 20; i++) {
+      try {
+        supported = await channel.invokeMethod<bool>('isSupported') ?? false;
+        _checked = true;
+        if (supported || i >= 5) return;
+      } on MissingPluginException {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      } on PlatformException {
+        supported = false;
+        _checked = true;
+        return;
+      }
+    }
+    _checked = true;
+  }
+
+  /// Lazy re-probe if startup raced the native registrar.
+  static Future<bool> ensureSupported() async {
+    if (_checked && supported) return true;
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.iOS &&
+            defaultTargetPlatform != TargetPlatform.macOS)) {
+      return false;
     }
     try {
       supported = await channel.invokeMethod<bool>('isSupported') ?? false;
+      _checked = true;
+    } on MissingPluginException {
+      // keep prior
     } on PlatformException {
       supported = false;
-    } on MissingPluginException {
-      supported = false;
+      _checked = true;
     }
+    return supported;
   }
 }
 
 class AppleGlassSurface extends StatefulWidget {
-  const AppleGlassSurface({super.key, required this.child, this.radius = 0});
+  const AppleGlassSurface({
+    super.key,
+    required this.child,
+    this.radius = 0,
+    this.interactive,
+    this.style = 'regular',
+  });
   final Widget child;
   final double radius;
+  /// When null, interactive defaults to true for rounded chrome (dock / cards).
+  final bool? interactive;
+  final String style;
 
   @override
   State<AppleGlassSurface> createState() => _AppleGlassSurfaceState();
@@ -39,9 +79,11 @@ class _AppleGlassSurfaceState extends State<AppleGlassSurface> {
   Map<String, Object>? _lastParams;
 
   Map<String, Object> _params() => {
-    'radius': widget.radius,
-    'dark': Theme.of(context).brightness == Brightness.dark,
-  };
+        'radius': widget.radius,
+        'dark': Theme.of(context).brightness == Brightness.dark,
+        'interactive': widget.interactive ?? widget.radius > 0,
+        'style': widget.style,
+      };
 
   void _update() {
     if (_viewChannel == null || !mounted) return;
@@ -51,6 +93,19 @@ class _AppleGlassSurfaceState extends State<AppleGlassSurface> {
     _viewChannel!
         .invokeMethod<void>('update', params)
         .catchError((Object _) {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Re-check support after first frame in case startup raced registration.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final was = AppleNativeGlass.supported;
+      await AppleNativeGlass.ensureSupported();
+      if (mounted && was != AppleNativeGlass.supported) {
+        (context as Element).markNeedsBuild();
+      }
+    });
   }
 
   @override

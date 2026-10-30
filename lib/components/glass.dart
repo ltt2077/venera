@@ -302,7 +302,12 @@ class GlassSurface extends StatelessWidget {
     }
 
     if (Glass.usesNative(context)) {
-      Widget native = AppleGlassSurface(radius: r, child: content);
+      Widget native = AppleGlassSurface(
+        radius: r,
+        interactive: r > 0,
+        style: 'regular',
+        child: content,
+      );
       if (margin != null) native = Padding(padding: margin!, child: native);
       return native;
     }

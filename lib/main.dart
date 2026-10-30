@@ -34,6 +34,16 @@ void main(List<String> args) {
         enablePerformanceMonitor: false,
       );
       runApp(const MyApp());
+      // Native channel/registrar can finish after the first frame under UIScene.
+      Future<void>.delayed(const Duration(milliseconds: 300), () async {
+        final before = AppleNativeGlass.supported;
+        await AppleNativeGlass.ensureSupported();
+        if (before != AppleNativeGlass.supported) {
+          try {
+            App.forceRebuild();
+          } catch (_) {}
+        }
+      });
       if (App.isDesktop) {
         await windowManager.ensureInitialized();
         windowManager.waitUntilReadyToShow().then((_) async {
