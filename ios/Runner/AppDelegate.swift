@@ -1,52 +1,53 @@
 import Flutter
 import UIKit
 import UniformTypeIdentifiers
-import Foundation // 添加此行
+import Foundation
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, UIDocumentPickerDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, UIDocumentPickerDelegate {
   var flutterResult: FlutterResult?
   var directoryPath: URL!
-
-  // 定义插件通道名称
   private var directoryPicker: DirectoryPicker?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
 
-    guard let controller = window?.rootViewController as? FlutterViewController else {
-          fatalError("rootViewController is not of type FlutterViewController")
-    }
+  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
-    let glassChannel = FlutterMethodChannel(name: "venera/native_glass", binaryMessenger: controller.binaryMessenger)
+    let messenger = engineBridge.applicationRegistrar.messenger()
+
+    let glassChannel = FlutterMethodChannel(name: "venera/native_glass", binaryMessenger: messenger)
     glassChannel.setMethodCallHandler { call, result in
       if call.method == "isSupported" {
         if #available(iOS 26.0, *) { result(true) } else { result(false) }
-      } else { result(FlutterMethodNotImplemented) }
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
     }
-    if let registrar = registrar(forPlugin: "VeneraNativeGlass") {
-      registrar.register(VeneraGlassFactory(messenger: controller.binaryMessenger), withId: "venera/native_glass_surface")
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "VeneraNativeGlass") {
+      registrar.register(VeneraGlassFactory(messenger: messenger), withId: "venera/native_glass_surface")
     }
 
-    let methodChannel = FlutterMethodChannel(name: "venera/method_channel", binaryMessenger: controller.binaryMessenger)
-    methodChannel.setMethodCallHandler { (call, result) in
+    let methodChannel = FlutterMethodChannel(name: "venera/method_channel", binaryMessenger: messenger)
+    methodChannel.setMethodCallHandler { [weak self] (call, result) in
+      guard let self = self else { return }
       if call.method == "getProxy" {
         if let proxySettings = CFNetworkCopySystemProxySettings()?.takeUnretainedValue() as NSDictionary?,
           let dict = proxySettings.object(forKey: kCFNetworkProxiesHTTPProxy) as? NSDictionary,
           let host = dict.object(forKey: kCFNetworkProxiesHTTPProxy) as? String,
           let port = dict.object(forKey: kCFNetworkProxiesHTTPPort) as? Int {
-          let proxyConfig = "\(host):\(port)"
-          result(proxyConfig)
+          result("\(host):\(port)")
         } else {
           result("")
         }
       } else if call.method == "setScreenOn" {
         if let arguments = call.arguments as? Bool {
-          let screenOn = arguments
-          UIApplication.shared.isIdleTimerDisabled = screenOn
+          UIApplication.shared.isIdleTimerDisabled = arguments
         }
         result(nil)
       } else if call.method == "getDirectoryPath" {
@@ -63,8 +64,18 @@ import Foundation // 添加此行
         result(FlutterMethodNotImplemented)
       }
     }
+  }
 
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  private func topViewController() -> UIViewController? {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    let window = scenes
+      .flatMap { $0.windows }
+      .first { $0.isKeyWindow } ?? scenes.first?.windows.first
+    var top = window?.rootViewController
+    while let presented = top?.presentedViewController {
+      top = presented
+    }
+    return top
   }
 
   func getDirectoryPath() {
@@ -73,10 +84,7 @@ import Foundation // 添加此行
     documentPicker.allowsMultipleSelection = false
     documentPicker.directoryURL = nil
     documentPicker.modalPresentationStyle = .formSheet
-
-    if let rootViewController = window?.rootViewController {
-      rootViewController.present(documentPicker, animated: true, completion: nil)
-    }
+    topViewController()?.present(documentPicker, animated: true, completion: nil)
   }
 
   func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
@@ -85,14 +93,8 @@ import Foundation // 添加此行
       flutterResult?(nil)
       return
     }
-
     let success = self.directoryPath.startAccessingSecurityScopedResource()
-
-    if success {
-      flutterResult?(self.directoryPath.path)
-    } else {
-      flutterResult?(nil)
-    }
+    flutterResult?(success ? self.directoryPath.path : nil)
   }
 
   func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
@@ -126,10 +128,15 @@ private class VeneraGlassView: NSObject, FlutterPlatformView {
       if call.method == "update" { self?.update(call.arguments as? [String: Any] ?? [:]); result(nil) }
       else { result(FlutterMethodNotImplemented) }
     }
-    observer = NotificationCenter.default.addObserver(forName: UIAccessibility.reduceTransparencyStatusDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-      guard let self = self else { return }; self.update(self.parameters)
+    observer = NotificationCenter.default.addObserver(
+      forName: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+      object: nil, queue: .main
+    ) { [weak self] _ in
+      guard let self = self else { return }
+      self.update(self.parameters)
     }
   }
+
   func update(_ args: [String: Any]) {
     parameters = args
     surface.layer.cornerRadius = CGFloat((args["radius"] as? NSNumber)?.doubleValue ?? 0)
@@ -147,7 +154,9 @@ private class VeneraGlassView: NSObject, FlutterPlatformView {
       surface.effect = UIBlurEffect(style: .systemMaterial)
     }
   }
+
   func view() -> UIView { surface }
+
   deinit {
     channel.setMethodCallHandler(nil)
     if let observer = observer { NotificationCenter.default.removeObserver(observer) }
