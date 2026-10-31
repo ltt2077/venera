@@ -103,7 +103,7 @@ class _AppleGlassSurfaceState extends State<AppleGlassSurface> {
       final was = AppleNativeGlass.supported;
       await AppleNativeGlass.ensureSupported();
       if (mounted && was != AppleNativeGlass.supported) {
-        (context as Element).markNeedsBuild();
+        setState(() {});
       }
     });
   }

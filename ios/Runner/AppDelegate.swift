@@ -30,16 +30,14 @@ import Foundation
         result(FlutterMethodNotImplemented)
       }
     }
-    // Always register via applicationRegistrar — registrar(forPlugin:) can be nil
-    // under UIScene/implicit engine and then UiKitView has no factory (no glass).
+    // Register platform-view factory exactly once. Registering the same viewType
+    // on both applicationRegistrar and registrar(forPlugin:) asserts / SIGABRT
+    // at launch under Flutter's implicit-engine UIScene path.
     let glassFactory = VeneraGlassFactory(messenger: messenger)
     engineBridge.applicationRegistrar.register(
       glassFactory,
       withId: "venera/native_glass_surface"
     )
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "VeneraNativeGlass") {
-      registrar.register(glassFactory, withId: "venera/native_glass_surface")
-    }
 
     let methodChannel = FlutterMethodChannel(name: "venera/method_channel", binaryMessenger: messenger)
     methodChannel.setMethodCallHandler { [weak self] (call, result) in
