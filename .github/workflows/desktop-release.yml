@@ -80,8 +80,15 @@ jobs:
           shutil.copytree(app, payload/'Runner.app', symlinks=True)
           Path('dist').mkdir()
           target = str(Path('dist', f"venera-{spec['version']}-ios-unsigned.ipa").resolve())
-          subprocess.run(['ditto','-c','-k','--sequesterRsrc','--keepParent','Payload',target], cwd='package-ios', check=True)
-          Path('dist/BUILD-INFO-ios.txt').write_text(f"Source commit: {os.environ['GITHUB_SHA']}\nVersion: {spec['version']}+{spec['build']}\nUnsigned IPA: sign with your own Apple identity before installation.\nNative glass: iOS/iPadOS 26+, shader fallback on older systems.\n")
+          # SideStore rejects zip Extra Field 0x7875 from ditto; use zip -X.
+          subprocess.run(['zip','-X','-r',target,'Payload'], cwd='package-ios', check=True)
+          Path('dist/BUILD-INFO-ios.txt').write_text(
+              f"Source commit: {os.environ['GITHUB_SHA']}\n"
+              f"Version: {spec['version']}+{spec['build']}\n"
+              f"Unsigned IPA: sign with your own Apple identity before installation.\n"
+              f"Native glass: UIKit UIGlassEffect overlay dock on iOS 26+ (not Flutter UiKitView).\n"
+              f"Packaging: zip -X (SideStore-safe, no 0x7875).\n"
+          )
           PY
       - uses: actions/upload-artifact@v4
         with:

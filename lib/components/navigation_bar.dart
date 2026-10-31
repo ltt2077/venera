@@ -70,12 +70,19 @@ class NaviPaneState extends State<NaviPane>
 
   late int _currentPage = widget.initialPage;
 
+  /// iOS UIKit UIGlassEffect overlay dock (see [NativeGlassDock]).
+  bool _nativeDock = false;
+  bool _nativeDockChecked = false;
+
   int get currentPage => _currentPage;
 
   set currentPage(int value) {
     if (value == _currentPage) return;
     _currentPage = value;
     widget.onPageChanged?.call(value);
+    if (_nativeDock) {
+      NativeGlassDock.setIndex(value);
+    }
   }
 
   void Function()? mainViewUpdateHandler;
@@ -148,6 +155,7 @@ class NaviPaneState extends State<NaviPane>
   void dispose() {
     controller.dispose();
     widget.observer.removeListener(onNavigatorStateChange);
+    if (App.isIOS) NativeGlassDock.hide();
     super.dispose();
   }
 
@@ -319,6 +327,51 @@ class NaviPaneState extends State<NaviPane>
     final safeBottom = MediaQuery.of(context).padding.bottom;
     final scheme = Theme.of(context).colorScheme;
 
+    // Probe once: prefer UIKit overlay UIGlassEffect dock on iOS 26+.
+    if (App.isIOS && !_nativeDockChecked) {
+      _nativeDockChecked = true;
+      NativeGlassDock.isSupported().then((ok) {
+        if (!mounted) return;
+        setState(() => _nativeDock = ok);
+        if (ok) {
+          NativeGlassDock.bind((i) {
+            if (!mounted) return;
+            updatePage(i);
+          });
+        }
+      });
+    }
+
+    if (_nativeDock && App.isIOS) {
+      final bottomPad = 8.0;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_nativeDock) return;
+        NativeGlassDock.show(
+          labels: [for (final e in widget.paneItems) e.label],
+          symbols: [
+            for (final e in widget.paneItems)
+              NativeGlassDock.symbolForName(e.label, e.activeIcon),
+          ],
+          index: currentPage,
+          dark: Theme.of(context).brightness == Brightness.dark,
+          radius: Glass.dockRadius,
+          hPad: Glass.dockHPad,
+          height: _kFloatingBarHeight,
+          bottomPad: bottomPad,
+          safeBottom: safeBottom,
+        );
+      });
+      // Transparent spacer so content clears the native overlay dock.
+      return SizedBox(height: _kFloatingBarHeight + bottomPad + safeBottom);
+    }
+
+    // Hide UIKit dock only after we know native overlay is unavailable.
+    if (App.isIOS && _nativeDockChecked && !_nativeDock) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        NativeGlassDock.hide();
+      });
+    }
+
     if (glassOn && Glass.usesNative(context)) {
       return Padding(
         padding: EdgeInsets.fromLTRB(Glass.dockHPad, 0, Glass.dockHPad, 8 + safeBottom),
@@ -340,8 +393,8 @@ class NaviPaneState extends State<NaviPane>
     }
 
     if (glassOn) {
-      // BiliPai / iOS-style floating liquid-glass capsule dock.
-      // GlassTabBar.bottom: horizontal margin, jelly indicator, refraction.
+      // BiliPai / iOS-style floating liquid-glass capsule dock (shader path).
+      // Used on Android always, and on iOS < 26 / when native overlay unavailable.
       return Padding(
         padding: EdgeInsets.only(bottom: safeBottom),
         child: GlassTabBar.bottom(

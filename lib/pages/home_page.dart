@@ -373,15 +373,17 @@ class _LocalState extends State<_Local> {
           ),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            context.to(() => const LocalComicsPage());
-          },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
+        // InkWell only on the header — wrapping the Import button made iOS
+        // GestureArena hand the tap to the parent (navigate / no-op) instead.
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            InkWell(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+              onTap: () {
+                context.to(() => const LocalComicsPage());
+              },
+              child: SizedBox(
                 height: 56,
                 child: Row(
                   children: [
@@ -405,61 +407,61 @@ class _LocalState extends State<_Local> {
                   ],
                 ),
               ).paddingHorizontal(16),
-              if (local.isNotEmpty)
-                SizedBox(
-                  height: 136,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: local.length,
-                    itemBuilder: (context, index) {
-                      final heroID = local[index].id.hashCode;
-                      return SimpleComicTile(
-                        comic: local[index],
-                        heroID: heroID,
-                        onTap: () {
-                          context.to(
-                            () => ComicPage(
-                              id: local[index].id,
-                              sourceKey: local[index].sourceKey,
-                              cover: local[index].cover,
-                              title: local[index].title,
-                              heroID: heroID,
-                            ),
-                          );
-                        },
-                      ).paddingHorizontal(8).paddingVertical(2);
+            ),
+            if (local.isNotEmpty)
+              SizedBox(
+                height: 136,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: local.length,
+                  itemBuilder: (context, index) {
+                    final heroID = local[index].id.hashCode;
+                    return SimpleComicTile(
+                      comic: local[index],
+                      heroID: heroID,
+                      onTap: () {
+                        context.to(
+                          () => ComicPage(
+                            id: local[index].id,
+                            sourceKey: local[index].sourceKey,
+                            cover: local[index].cover,
+                            title: local[index].title,
+                            heroID: heroID,
+                          ),
+                        );
+                      },
+                    ).paddingHorizontal(8).paddingVertical(2);
+                  },
+                ),
+              ).paddingHorizontal(8),
+            Row(
+              children: [
+                if (LocalManager().downloadingTasks.isNotEmpty)
+                  Button.outlined(
+                    child: Row(
+                      children: [
+                        if (LocalManager().downloadingTasks.first.isPaused)
+                          const Icon(Icons.pause_circle_outline, size: 18)
+                        else
+                          const _AnimatedDownloadingIcon(),
+                        const SizedBox(width: 8),
+                        Text("@a Tasks".tlParams({
+                          'a': LocalManager().downloadingTasks.length,
+                        })),
+                      ],
+                    ),
+                    onPressed: () {
+                      showPopUpWidget(context, const DownloadingPage());
                     },
                   ),
-                ).paddingHorizontal(8),
-              Row(
-                children: [
-                  if (LocalManager().downloadingTasks.isNotEmpty)
-                    Button.outlined(
-                      child: Row(
-                        children: [
-                          if (LocalManager().downloadingTasks.first.isPaused)
-                            const Icon(Icons.pause_circle_outline, size: 18)
-                          else
-                            const _AnimatedDownloadingIcon(),
-                          const SizedBox(width: 8),
-                          Text("@a Tasks".tlParams({
-                            'a': LocalManager().downloadingTasks.length,
-                          })),
-                        ],
-                      ),
-                      onPressed: () {
-                        showPopUpWidget(context, const DownloadingPage());
-                      },
-                    ),
-                  const Spacer(),
-                  Button.filled(
-                    onPressed: import,
-                    child: Text("Import".tl),
-                  ),
-                ],
-              ).paddingHorizontal(16).paddingVertical(8),
-            ],
-          ),
+                const Spacer(),
+                Button.filled(
+                  onPressed: import,
+                  child: Text("Import".tl),
+                ),
+              ],
+            ).paddingHorizontal(16).paddingVertical(8),
+          ],
         ),
       ),
     );
@@ -467,7 +469,7 @@ class _LocalState extends State<_Local> {
 
   void import() {
     showDialog(
-      barrierDismissible: false,
+      barrierDismissible: true,
       context: App.rootContext,
       builder: (context) {
         return const _ImportComicsWidget();
@@ -618,13 +620,20 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
   }
 
   void selectAndImport() async {
-    height = key.currentContext!.size!.height;
+    height = key.currentContext?.size?.height ?? height;
 
-    setState(() {
-      loading = true;
-    });
+    // Run the picker FIRST. Setting loading=true here used to cover the dialog
+    // with a spinner while UIDocumentPicker tried to present → iOS showed no UI.
     var importer = ImportComic(
         selectedFolder: selectedFolder, copyToLocal: copyToLocalFolder);
+
+    // Types 0-4 open a system picker; only flip loading after a path is chosen
+    // (handled inside ImportComic with its own loading dialog where needed).
+    // Keep a light busy flag only for type 5 (no picker).
+    if (type == 5) {
+      setState(() => loading = true);
+    }
+
     var result = switch (type) {
       0 => await importer.directory(true),
       1 => await importer.directory(false),
@@ -634,12 +643,11 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
       5 => await importer.localDownloads(),
       int() => true,
     };
+    if (!mounted) return;
     if (result) {
       context.pop();
     } else {
-      setState(() {
-        loading = false;
-      });
+      setState(() => loading = false);
     }
   }
 }

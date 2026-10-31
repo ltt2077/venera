@@ -269,11 +269,6 @@ class IOSDirectoryPicker {
 Future<FileSelectResult?> selectFile({required List<String> ext}) async {
   IO._isSelectingFiles = true;
   try {
-    var extensions = App.isMacOS || App.isIOS ? null : ext;
-    file_selector.XTypeGroup typeGroup = file_selector.XTypeGroup(
-      label: 'files',
-      extensions: extensions,
-    );
     FileSelectResult? file;
     if (App.isAndroid) {
       const selectFileChannel = MethodChannel("venera/select_file");
@@ -290,16 +285,30 @@ Future<FileSelectResult?> selectFile({required List<String> ext}) async {
       );
       if (filePath == null) return null;
       file = FileSelectResult(filePath);
+    } else if (App.isIOS) {
+      // UIScene + SideStore: file_selector often returns null without presenting.
+      // Use our AppDelegate UIDocumentPicker (pickFile) via method channel.
+      const channel = MethodChannel("venera/method_channel");
+      final path = await channel.invokeMethod<String?>("pickFile", ext);
+      if (path == null) return null;
+      file = FileSelectResult(path);
     } else {
+      var extensions = App.isMacOS ? null : ext;
+      file_selector.XTypeGroup typeGroup = file_selector.XTypeGroup(
+        label: 'files',
+        extensions: extensions,
+      );
       var xFile = await file_selector.openFile(
         acceptedTypeGroups: <file_selector.XTypeGroup>[typeGroup],
       );
       if (xFile == null) return null;
       file = FileSelectResult(xFile.path);
     }
-    if (!ext.contains(file.path.split(".").last)) {
+    final suffix = file.path.split(".").last.toLowerCase();
+    final allowed = ext.map((e) => e.toLowerCase()).toList();
+    if (!allowed.contains(suffix)) {
       App.rootContext.showMessage(
-        message: "Invalid file type: ${file.path.split(".").last}",
+        message: "Invalid file type: $suffix",
       );
       return null;
     }

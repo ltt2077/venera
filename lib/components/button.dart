@@ -192,6 +192,7 @@ class _ButtonState extends State<Button> {
       onExit: (_) => setState(() => isHover = false),
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () {
           if (isLoading) return;
           widget.onPressed();
