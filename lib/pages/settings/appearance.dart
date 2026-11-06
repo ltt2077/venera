@@ -65,8 +65,8 @@ class _AppearanceSettingsState extends State<AppearanceSettings> {
   }
 
   List<Widget> _glassParamSlivers() {
-    final native = Glass.usesNative(context);
-    final systemControls = NativeGlassDock.isIOS && native;
+    final systemControls = NativeGlassDock.usesSystemControls;
+    final native = systemControls || Glass.usesNative(context);
     return [
       SliverToBoxAdapter(
         child: ListTile(

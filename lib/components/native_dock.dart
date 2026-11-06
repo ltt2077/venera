@@ -22,6 +22,7 @@ class NativeGlassDock {
   static bool get isIOS =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
   static bool get supportUnknown => _supported == null;
+  static bool get usesSystemControls => isIOS && _supported == true;
 
   static Future<bool> isSupported() async {
     if (!isIOS) return false;
