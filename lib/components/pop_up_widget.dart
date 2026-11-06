@@ -54,7 +54,8 @@ class PopUpWidget<T> extends PopupRoute<T> {
                     ],
             )
           : null,
-      clipBehavior: showPopUp ? Clip.antiAlias : Clip.none,
+      // Shape Flutter content inside GlassSurface, never mask native material.
+      clipBehavior: showPopUp && !Glass.usesNative(context) ? Clip.antiAlias : Clip.none,
       width: showPopUp ? 500 : double.infinity,
       height: showPopUp ? height : double.infinity,
       child: glassOn

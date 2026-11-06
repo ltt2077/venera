@@ -1,5 +1,6 @@
 {
   "zh_CN": {
+    "iOS manages native tabs, toolbar buttons and glass. Accessibility settings may simplify transparency.": "iOS 管理原生标签栏、工具栏按钮和玻璃材质。系统辅助功能设置可能简化透明效果。",
     "Official sources": "官方源列表",
     "Glass sources": "扩展源列表",
     "Refresh to apply the repository URL": "刷新成功后才会应用仓库地址",
@@ -505,6 +506,7 @@
     "Reset to defaults": "已恢复默认"
   },
   "zh_TW": {
+    "iOS manages native tabs, toolbar buttons and glass. Accessibility settings may simplify transparency.": "iOS 管理原生標籤列、工具列按鈕及玻璃材質。系統輔助使用設定可能簡化透明效果。",
     "Official sources": "官方來源清單",
     "Glass sources": "擴充來源清單",
     "Refresh to apply the repository URL": "重新整理成功後才會套用倉庫網址",

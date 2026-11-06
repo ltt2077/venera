@@ -66,6 +66,7 @@ class AppleGlassSurface extends StatefulWidget {
   });
   final Widget child;
   final double radius;
+
   /// When null, interactive defaults to true for rounded chrome (dock / cards).
   final bool? interactive;
   final String style;
@@ -79,11 +80,11 @@ class _AppleGlassSurfaceState extends State<AppleGlassSurface> {
   Map<String, Object>? _lastParams;
 
   Map<String, Object> _params() => {
-        'radius': widget.radius,
-        'dark': Theme.of(context).brightness == Brightness.dark,
-        'interactive': widget.interactive ?? widget.radius > 0,
-        'style': widget.style,
-      };
+    'radius': widget.radius,
+    'dark': Theme.of(context).brightness == Brightness.dark,
+    'interactive': widget.interactive ?? widget.radius > 0,
+    'style': widget.style,
+  };
 
   void _update() {
     if (_viewChannel == null || !mounted) return;
@@ -98,14 +99,7 @@ class _AppleGlassSurfaceState extends State<AppleGlassSurface> {
   @override
   void initState() {
     super.initState();
-    // Re-check support after first frame in case startup raced registration.
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final was = AppleNativeGlass.supported;
-      await AppleNativeGlass.ensureSupported();
-      if (mounted && was != AppleNativeGlass.supported) {
-        setState(() {});
-      }
-    });
+    // Capability is established once at startup, not once per glass surface.
   }
 
   @override
@@ -151,11 +145,18 @@ class _AppleGlassSurfaceState extends State<AppleGlassSurface> {
           );
     return Stack(
       fit: StackFit.passthrough,
+      clipBehavior: Clip.none,
       children: [
         Positioned.fill(
           child: IgnorePointer(child: ExcludeSemantics(child: background)),
         ),
-        widget.child,
+        if (widget.radius > 0)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(widget.radius),
+            child: widget.child,
+          )
+        else
+          widget.child,
       ],
     );
   }

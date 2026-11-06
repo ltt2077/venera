@@ -1,3 +1,5 @@
+export 'native_dock.dart';
+import 'native_dock.dart';
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
@@ -53,6 +55,5 @@ part 'side_bar.dart';
 part 'comic.dart';
 part 'effects.dart';
 part 'glass.dart';
-part 'native_dock.dart';
 part 'gesture.dart';
 part 'code.dart';

@@ -1,0 +1,118 @@
+name: Repair iOS 1.7.9 native glass
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ios-1.7.9-native-glass]
+permissions:
+  contents: read
+concurrency:
+  group: ios-native-repair-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  FLUTTER_VERSION: '3.41.4'
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - run: flutter pub get
+      - run: dart run tool/check_backup_core.dart
+      - run: flutter test
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          architecture: arm64
+          cache: true
+      - run: xcodebuild -version
+      - run: rustup show
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign --build-name 1.7.9 --build-number 180
+      - run: python3 tool/package_ios_native.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: venera-ios-1.7.9-native-ui
+          path: dist/
+          if-no-files-found: error
+
+  native-ui:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          architecture: arm64
+          cache: true
+      - run: rustup show
+      - run: flutter pub get
+      - name: Choose and boot iOS 26 simulator
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          devices = json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','--json']))['devices']
+          candidates = [(runtime, item) for runtime, items in devices.items() for item in items if 'iOS-26-' in runtime and item['name'].startswith('iPhone')]
+          assert candidates, 'No iOS 26 simulator available'
+          runtime, device = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('SIMULATOR_ID=' + device['udid'] + '\n')
+          subprocess.run(['xcrun','simctl','boot',device['udid']], check=False)
+          subprocess.run(['xcrun','simctl','bootstatus',device['udid'],'-b'], check=True)
+          print(runtime, device['name'], device['udid'])
+          PY
+      - name: Configure simulator build
+        run: flutter build ios --simulator --debug --no-codesign --config-only
+      - name: Run UIKit controls and live Flutter integration tests
+        run: |
+          mkdir -p native-ui-results
+          if ! xcodebuild test -workspace ios/Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=$SIMULATOR_ID" -derivedDataPath build/native-derived -resultBundlePath build/native-ui.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO > native-ui-results/xcode-test.log 2>&1; then
+            tail -n 130 native-ui-results/xcode-test.log
+            exit 1
+          fi
+          tail -n 35 native-ui-results/xcode-test.log
+      - name: Capture actual application UI
+        run: |
+          xcrun simctl launch --terminate-running-process "$SIMULATOR_ID" com.github.wgh136.venera > native-ui-results/launch.txt
+          sleep 15
+          xcrun simctl io "$SIMULATOR_ID" screenshot native-ui-results/ios-native-home.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: venera-ios-native-ui-verification
+          path: native-ui-results/
+
+  publish:
+    needs: [test, ios, native-ui]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: venera-ios-1.7.9-native-ui
+          path: dist/
+      - name: Preserve previous iOS package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download v1.7.9-glass --repo "$GITHUB_REPOSITORY" --pattern venera-1.7.9-ios-unsigned.ipa --dir previous-ios/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: venera-ios-1.7.9-before-native-ui-repair
+          path: previous-ios/
+      - name: Publish verified replacement without changing the version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tool/publish_ios_native.py

@@ -66,12 +66,15 @@ class _AppearanceSettingsState extends State<AppearanceSettings> {
 
   List<Widget> _glassParamSlivers() {
     final native = Glass.usesNative(context);
+    final systemControls = NativeGlassDock.isIOS && native;
     return [
       SliverToBoxAdapter(
         child: ListTile(
           title: Text((native ? "System Glass" : "Liquid Glass Parameters").tl),
           subtitle: Text(
-            (native
+            (systemControls
+                    ? 'iOS manages native tabs, toolbar buttons and glass. Accessibility settings may simplify transparency.'
+                    : native
                     ? "The system manages the material. Dock layout remains adjustable."
                     : "Tune blur, tint, refraction and dock. Changes apply immediately.")
                 .tl,
@@ -139,22 +142,24 @@ class _AppearanceSettingsState extends State<AppearanceSettings> {
           onChanged: _rebuildGlass,
         ).toSliver(),
       ],
-      _SliderSetting(
-        title: "Dock Side Margin".tl,
-        settingsIndex: "liquidGlassDockMargin",
-        min: 4,
-        max: 36,
-        interval: 1,
-        onChanged: _rebuildGlass,
-      ).toSliver(),
-      _SliderSetting(
-        title: "Dock Corner Radius".tl,
-        settingsIndex: "liquidGlassDockRadius",
-        min: 12,
-        max: 40,
-        interval: 1,
-        onChanged: _rebuildGlass,
-      ).toSliver(),
+      if (!systemControls)
+        _SliderSetting(
+          title: "Dock Side Margin".tl,
+          settingsIndex: "liquidGlassDockMargin",
+          min: 4,
+          max: 36,
+          interval: 1,
+          onChanged: _rebuildGlass,
+        ).toSliver(),
+      if (!systemControls)
+        _SliderSetting(
+          title: "Dock Corner Radius".tl,
+          settingsIndex: "liquidGlassDockRadius",
+          min: 12,
+          max: 40,
+          interval: 1,
+          onChanged: _rebuildGlass,
+        ).toSliver(),
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),

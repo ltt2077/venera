@@ -10,15 +10,10 @@ part of 'components.dart';
 class Glass {
   Glass._();
 
-  /// Native *Flutter platform-view* glass (UiKitView / AppKitView).
-  ///
-  /// On **iOS** this stays false: UiKitView holes cannot feed Impeller pixels
-  /// into UIGlassEffect (solid gray capsule). The bottom dock uses a real
-  /// UIKit overlay ([NativeGlassDock] / UIGlassEffect on FlutterView) instead.
-  /// Other chrome uses shader [AdaptiveGlass]. macOS still uses NSGlassEffectView.
+  /// Native material is available on both Apple platforms. UIKit controls
+  /// additionally own the iOS main navigation chrome.
   static bool usesNative(BuildContext context) {
     if (!AppleNativeGlass.supported || !shouldBlur(context)) return false;
-    if (App.isIOS) return false;
     return true;
   }
 

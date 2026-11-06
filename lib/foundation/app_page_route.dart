@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
+import 'package:venera/components/apple_native_glass.dart';
 
 const double _kBackGestureWidth = 20.0;
 const int _kMaxDroppedSwipePageForwardAnimationTime = 800;
@@ -512,7 +513,7 @@ class SlidePageTransitionBuilder extends PageTransitionsBuilder {
             return PhysicalModel(
               color: fill,
               borderRadius: BorderRadius.zero,
-              clipBehavior: Clip.hardEdge,
+              clipBehavior: App.isIOS && AppleNativeGlass.supported ? Clip.none : Clip.hardEdge,
               elevation: AppPageRoute._glassOn ? 0 : 6,
               shadowColor: Colors.transparent,
               child: Material(

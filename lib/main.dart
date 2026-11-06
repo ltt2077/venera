@@ -96,6 +96,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    NativeGlassDock.setAppActive(state == AppLifecycleState.resumed);
     if (!App.isMobile || !appdata.settings['authorizationRequired']) {
       return;
     }
@@ -230,6 +231,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         debugShowCheckedModeBanner: false,
         theme: getTheme(primary, secondary, tertiary, Brightness.light),
         navigatorKey: App.rootNavigatorKey,
+        navigatorObservers: [NativeGlassDock.rootObserver],
         darkTheme: getTheme(primary, secondary, tertiary, Brightness.dark),
         themeMode: switch (appdata.settings['theme_mode']) {
           'light' => ThemeMode.light,

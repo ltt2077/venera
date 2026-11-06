@@ -70,9 +70,69 @@ class NaviPaneState extends State<NaviPane>
 
   late int _currentPage = widget.initialPage;
 
-  /// iOS UIKit UIGlassEffect overlay dock (see [NativeGlassDock]).
+  /// UIKit owns the main iOS tab bar and navigation actions.
   bool _nativeDock = false;
   bool _nativeDockChecked = false;
+
+  bool get _useNativeChrome =>
+      _nativeDock && NativeGlassDock.isIOS && Glass.enabled;
+
+  bool get _nativeVisible =>
+      _useNativeChrome &&
+      targetFormContext(context) < 2 &&
+      widget.observer.routes.length <= 1 &&
+      MediaQuery.of(context).viewInsets.bottom == 0;
+
+  void _syncNativeVisibility() {
+    if (_nativeDock && mounted) NativeGlassDock.setVisible(_nativeVisible);
+  }
+
+  void _probeNativeChrome() {
+    if (!NativeGlassDock.isIOS || _nativeDockChecked) return;
+    _nativeDockChecked = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final supported = await NativeGlassDock.isSupported();
+      if (!mounted) return;
+      if (!supported) {
+        _nativeDockChecked = !NativeGlassDock.supportUnknown;
+        return;
+      }
+      NativeGlassDock.bind(
+        onSelect: (index) {
+          if (mounted && index >= 0 && index < widget.paneItems.length)
+            updatePage(index);
+        },
+        onAction: (index) {
+          if (mounted && index >= 0 && index < widget.paneActions.length)
+            widget.paneActions[index].onTap();
+        },
+      );
+      setState(() => _nativeDock = true);
+      mainViewUpdateHandler?.call();
+    });
+  }
+
+  void _configureNativeChrome() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_nativeDock) return;
+      NativeGlassDock.show(
+        labels: [for (final item in widget.paneItems) item.label],
+        symbols: [
+          for (final item in widget.paneItems)
+            NativeGlassDock.symbolForName(item.label, item.icon),
+        ],
+        actionLabels: [for (final item in widget.paneActions) item.label],
+        actionSymbols: [
+          for (final item in widget.paneActions)
+            NativeGlassDock.symbolForName(item.label, item.icon),
+        ],
+        index: currentPage,
+        dark: Theme.of(context).brightness == Brightness.dark,
+        tint: Theme.of(context).colorScheme.primary.toARGB32(),
+        visible: _nativeVisible,
+      );
+    });
+  }
 
   int get currentPage => _currentPage;
 
@@ -99,7 +159,6 @@ class NaviPaneState extends State<NaviPane>
     _naviItemTapListeners.remove(listener);
   }
 
-
   /// Floating liquid-glass dock (GlassTabBar.bottom) metrics — BiliPai-like.
   static const _kFloatingBarHeight = 56.0;
   static const _kFloatingBarVertPad = 10.0;
@@ -113,6 +172,7 @@ class NaviPaneState extends State<NaviPane>
   /// Total bottom inset reserved so content can scroll under the floating dock.
   double get bottomBarHeight {
     final safe = MediaQuery.of(context).padding.bottom;
+    if (_useNativeChrome) return 62 + safe;
     if (Glass.shouldBlur(context)) {
       return _kFloatingBarHeight + _kFloatingBarVertPad * 2 + safe;
     }
@@ -121,6 +181,7 @@ class NaviPaneState extends State<NaviPane>
 
   void onNavigatorStateChange() {
     onRebuild(context);
+    _syncNativeVisibility();
   }
 
   void updatePage(int index) {
@@ -148,14 +209,17 @@ class NaviPaneState extends State<NaviPane>
       vsync: this,
     );
     widget.observer.addListener(onNavigatorStateChange);
+    controller.addListener(_syncNativeVisibility);
     super.initState();
+    _probeNativeChrome();
   }
 
   @override
   void dispose() {
+    controller.removeListener(_syncNativeVisibility);
     controller.dispose();
     widget.observer.removeListener(onNavigatorStateChange);
-    if (App.isIOS) NativeGlassDock.hide();
+    if (NativeGlassDock.isIOS) NativeGlassDock.unbind();
     super.dispose();
   }
 
@@ -191,6 +255,8 @@ class NaviPaneState extends State<NaviPane>
   @override
   Widget build(BuildContext context) {
     onRebuild(context);
+    _probeNativeChrome();
+    _syncNativeVisibility();
     final mq = MediaQuery.of(context);
     final sideInsets = (App.isMobile && mq.orientation == Orientation.landscape)
         ? EdgeInsets.only(
@@ -229,10 +295,7 @@ class NaviPaneState extends State<NaviPane>
             ],
           );
           if (sideInsets != EdgeInsets.zero) {
-            content = Padding(
-              padding: sideInsets,
-              child: content,
-            );
+            content = Padding(padding: sideInsets, child: content);
           }
           return content;
         },
@@ -281,40 +344,45 @@ class NaviPaneState extends State<NaviPane>
   }
 
   Widget buildTop() {
+    if (_useNativeChrome) {
+      _configureNativeChrome();
+      return const SizedBox(height: 44);
+    }
     final glassOn = Glass.shouldBlur(context);
     Widget bar = Container(
-        padding: const EdgeInsets.only(left: 16, right: 16),
-        height: _kTopBarHeight,
-        width: double.infinity,
-        decoration: glassOn
-            ? BoxDecoration(
-                color: Colors.transparent,
-                border: Border(
-                  bottom: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant
-                        .toOpacity(0.45),
-                    width: 0.6,
-                  ),
-                ),
-              )
-            : null,
-        child: Row(
-          children: [
-            Text(
-              widget.paneItems[currentPage].label,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const Spacer(),
-            for (var action in widget.paneActions)
-              Tooltip(
-                message: action.label,
-                child: IconButton(
-                  icon: Icon(action.icon),
-                  onPressed: action.onTap,
+      padding: const EdgeInsets.only(left: 16, right: 16),
+      height: _kTopBarHeight,
+      width: double.infinity,
+      decoration: glassOn
+          ? BoxDecoration(
+              color: Colors.transparent,
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outlineVariant.toOpacity(0.45),
+                  width: 0.6,
                 ),
               ),
-          ],
-        ),
+            )
+          : null,
+      child: Row(
+        children: [
+          Text(
+            widget.paneItems[currentPage].label,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const Spacer(),
+          for (var action in widget.paneActions)
+            Tooltip(
+              message: action.label,
+              child: IconButton(
+                icon: Icon(action.icon),
+                onPressed: action.onTap,
+              ),
+            ),
+        ],
+      ),
     );
     if (glassOn) {
       return GlassChrome(child: bar);
@@ -327,66 +395,37 @@ class NaviPaneState extends State<NaviPane>
     final safeBottom = MediaQuery.of(context).padding.bottom;
     final scheme = Theme.of(context).colorScheme;
 
-    // Probe once: prefer UIKit overlay UIGlassEffect dock on iOS 26+.
-    if (App.isIOS && !_nativeDockChecked) {
-      _nativeDockChecked = true;
-      NativeGlassDock.isSupported().then((ok) {
-        if (!mounted) return;
-        setState(() => _nativeDock = ok);
-        if (ok) {
-          NativeGlassDock.bind((i) {
-            if (!mounted) return;
-            updatePage(i);
-          });
-        }
-      });
+    if (_useNativeChrome) {
+      _configureNativeChrome();
+      return SizedBox(height: bottomBarHeight);
     }
-
-    if (_nativeDock && App.isIOS) {
-      final bottomPad = 8.0;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_nativeDock) return;
-        NativeGlassDock.show(
-          labels: [for (final e in widget.paneItems) e.label],
-          symbols: [
-            for (final e in widget.paneItems)
-              NativeGlassDock.symbolForName(e.label, e.activeIcon),
-          ],
-          index: currentPage,
-          dark: Theme.of(context).brightness == Brightness.dark,
-          radius: Glass.dockRadius,
-          hPad: Glass.dockHPad,
-          height: _kFloatingBarHeight,
-          bottomPad: bottomPad,
-          safeBottom: safeBottom,
-        );
-      });
-      // Transparent spacer so content clears the native overlay dock.
-      return SizedBox(height: _kFloatingBarHeight + bottomPad + safeBottom);
-    }
-
-    // Hide UIKit dock only after we know native overlay is unavailable.
-    if (App.isIOS && _nativeDockChecked && !_nativeDock) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        NativeGlassDock.hide();
-      });
-    }
+    _syncNativeVisibility();
 
     if (glassOn && Glass.usesNative(context)) {
       return Padding(
-        padding: EdgeInsets.fromLTRB(Glass.dockHPad, 0, Glass.dockHPad, 8 + safeBottom),
+        padding: EdgeInsets.fromLTRB(
+          Glass.dockHPad,
+          0,
+          Glass.dockHPad,
+          8 + safeBottom,
+        ),
         child: GlassSurface(
           borderRadius: BorderRadius.circular(Glass.dockRadius),
           child: SizedBox(
             height: _kFloatingBarHeight,
-            child: Row(children: List.generate(widget.paneItems.length, (i) => Expanded(
-              child: _SingleBottomNaviWidget(
-                enabled: currentPage == i,
-                entry: widget.paneItems[i],
-                onTap: () => updatePage(i),
-                key: ValueKey(i),
+            child: Row(
+              children: List.generate(
+                widget.paneItems.length,
+                (i) => Expanded(
+                  child: _SingleBottomNaviWidget(
+                    enabled: currentPage == i,
+                    entry: widget.paneItems[i],
+                    onTap: () => updatePage(i),
+                    key: ValueKey(i),
+                  ),
+                ),
               ),
-            ))),
+            ),
           ),
         ),
       );
@@ -466,49 +505,50 @@ class NaviPaneState extends State<NaviPane>
     const paddingHorizontal = 12.0;
     final glassOn = Glass.shouldBlur(context);
     Widget side = Container(
-        width:
-            _kFoldedSideBarWidth +
-            (_kSideBarWidth - _kFoldedSideBarWidth) * ((value - 2).clamp(0, 1)),
-        height: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: paddingHorizontal),
-        decoration: BoxDecoration(
-          color: glassOn ? Colors.transparent : null,
-          border: Border(
-            right: BorderSide(
-              color: Theme.of(context).colorScheme.outlineVariant
-                  .toOpacity(glassOn ? 0.45 : 1),
-              width: glassOn ? 0.6 : 1.0,
-            ),
+      width:
+          _kFoldedSideBarWidth +
+          (_kSideBarWidth - _kFoldedSideBarWidth) * ((value - 2).clamp(0, 1)),
+      height: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: paddingHorizontal),
+      decoration: BoxDecoration(
+        color: glassOn ? Colors.transparent : null,
+        border: Border(
+          right: BorderSide(
+            color: Theme.of(
+              context,
+            ).colorScheme.outlineVariant.toOpacity(glassOn ? 0.45 : 1),
+            width: glassOn ? 0.6 : 1.0,
           ),
         ),
-        child: Column(
-          children: [
-            const SizedBox(height: 16),
-            SizedBox(height: MediaQuery.of(context).padding.top),
-            ...List<Widget>.generate(
-              widget.paneItems.length,
-              (index) => _SideNaviWidget(
-                enabled: currentPage == index,
-                entry: widget.paneItems[index],
-                showTitle: value == 3,
-                onTap: () {
-                  updatePage(index);
-                },
-                key: ValueKey(index),
-              ),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 16),
+          SizedBox(height: MediaQuery.of(context).padding.top),
+          ...List<Widget>.generate(
+            widget.paneItems.length,
+            (index) => _SideNaviWidget(
+              enabled: currentPage == index,
+              entry: widget.paneItems[index],
+              showTitle: value == 3,
+              onTap: () {
+                updatePage(index);
+              },
+              key: ValueKey(index),
             ),
-            const Spacer(),
-            ...List<Widget>.generate(
-              widget.paneActions.length,
-              (index) => _PaneActionWidget(
-                entry: widget.paneActions[index],
-                showTitle: value == 3,
-                key: ValueKey(index + widget.paneItems.length),
-              ),
+          ),
+          const Spacer(),
+          ...List<Widget>.generate(
+            widget.paneActions.length,
+            (index) => _PaneActionWidget(
+              entry: widget.paneActions[index],
+              showTitle: value == 3,
+              key: ValueKey(index + widget.paneItems.length),
             ),
-            const SizedBox(height: 16),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
     );
     if (glassOn) {
       // Desktop (esp. macOS) + Android: package premium glass sidebar
@@ -820,7 +860,9 @@ class _NaviMainViewState extends State<_NaviMainView> {
   Widget build(BuildContext context) {
     final shouldShowAppBar = state.controller.value < 2;
     final mq = MediaQuery.of(context);
-    final dockInset = shouldShowAppBar ? state.bottomBarHeight : mq.padding.bottom;
+    final dockInset = shouldShowAppBar
+        ? state.bottomBarHeight
+        : mq.padding.bottom;
 
     // Retain visited tabs without eagerly loading every source at startup.
     Widget body = MediaQuery(
@@ -851,12 +893,7 @@ class _NaviMainViewState extends State<_NaviMainView> {
             Expanded(child: body),
           ],
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: state.buildBottom(),
-        ),
+        Positioned(left: 0, right: 0, bottom: 0, child: state.buildBottom()),
       ],
     );
   }
