@@ -325,7 +325,7 @@ final class VeneraNativeChromeHost: UIView {
   }
 }
 
-final class VeneraNativeDock: NSObject {
+@MainActor final class VeneraNativeDock: NSObject {
   static let shared = VeneraNativeDock()
   private let controller = VeneraNativeChromeController()
   private var overlay: VeneraNativeChromeHost?

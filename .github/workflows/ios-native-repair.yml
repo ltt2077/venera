@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ios-native-repair-${{ github.ref }}
+  group: ios-native-repair-1.7.9
   cancel-in-progress: true
 env:
   FLUTTER_VERSION: '3.41.4'
