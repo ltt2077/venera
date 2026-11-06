@@ -14,7 +14,7 @@ def gh(*args):
 
 def main():
     repo = os.environ['GITHUB_REPOSITORY']
-    commit = os.environ['GITHUB_SHA']
+    commit = os.environ.get('REPAIR_SOURCE_COMMIT', os.environ['GITHUB_SHA'])
     feature = 'codex/ios-1.7.9-native-glass'
     source = json.loads(gh('api', f'repos/{repo}/branches/{feature}'))['commit']['sha']
     assert source == commit, 'A newer repair commit exists'

@@ -45,7 +45,7 @@ def main():
     sha = hashlib.sha256(target.read_bytes()).hexdigest()
     (dist / 'SHA256-ios-native-ui.txt').write_text(f'{sha}  {target.name}\n')
     provenance = {
-        'source_commit': os.environ['GITHUB_SHA'],
+        'source_commit': os.environ.get('REPAIR_SOURCE_COMMIT', os.environ['GITHUB_SHA']),
         'version': '1.7.9', 'build': '180',
         'bundle_id': info['CFBundleIdentifier'],
         'native_ui_revision': info['VeneraNativeUIRevision'],

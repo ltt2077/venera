@@ -36,6 +36,10 @@ import 'package:venera/utils/translations.dart';
 import 'retained_tab_view.dart';
 import 'apple_native_glass.dart';
 
+import 'native_dock.dart';
+
+export 'native_dock.dart';
+
 part 'image.dart';
 part 'appbar.dart';
 part 'button.dart';
@@ -52,9 +56,7 @@ part 'select.dart';
 part 'side_bar.dart';
 part 'comic.dart';
 part 'effects.dart';
-import 'native_dock.dart';
 
-export 'native_dock.dart';
 
 part 'glass.dart';
 part 'gesture.dart';
