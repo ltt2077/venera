@@ -170,7 +170,7 @@ private class VeneraGlassView: NSObject, FlutterPlatformView {
     let radius = CGFloat((args["radius"] as? NSNumber)?.doubleValue ?? 0)
     // UIGlassEffect shapes itself. A clipping mask flattens its optical effect.
     if #available(iOS 26.0, *) {
-      surface.cornerConfiguration = .fixed(radius)
+      surface.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
       surface.clipsToBounds = false
     } else {
       surface.layer.cornerRadius = radius

@@ -3,8 +3,6 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [glass-cloud]
-  push:
-    branches: [codex/ios-1.7.9-native-glass]
 permissions:
   contents: read
 concurrency:
