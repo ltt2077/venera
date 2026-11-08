@@ -36,17 +36,44 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(action, 0)
   }
 
-  @MainActor func testNativeHostPassesContentTouchesThrough() {
+  @MainActor func testNativeHostPassesContentTouchesThrough() throws {
+    let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }.first { $0.activationState == .foregroundActive })
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let parent = UIViewController()
+    window.rootViewController = parent
+    window.isHidden = false
     let chrome = VeneraNativeChromeController()
     chrome.configure(configuration)
+    parent.addChild(chrome)
     let host = VeneraNativeChromeHost(controller: chrome)
-    host.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+    host.frame = parent.view.bounds
+    parent.view.addSubview(host)
+    chrome.didMove(toParent: parent)
+    defer {
+      chrome.willMove(toParent: nil)
+      host.removeFromSuperview()
+      chrome.removeFromParent()
+      window.isHidden = true
+      window.rootViewController = nil
+    }
+    window.layoutIfNeeded()
+    parent.view.layoutIfNeeded()
     host.layoutIfNeeded()
     chrome.view.layoutIfNeeded()
-    XCTAssertNil(host.hitTest(CGPoint(x: 195, y: 400), with: nil))
-    XCTAssertNotNil(host.hitTest(CGPoint(x: 360, y: 22), with: nil))
+    chrome.header.layoutIfNeeded()
+    func descendants(_ view: UIView) -> [UIView] { view.subviews.flatMap { [$0] + descendants($0) } }
+    let button = try XCTUnwrap(descendants(chrome.header).compactMap { $0 as? UIControl }
+      .first { !$0.isHidden && $0.alpha > 0 && !$0.bounds.isEmpty && $0.isUserInteractionEnabled })
+    let buttonPoint = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: host)
+    // iOS 26 bars pass empty space through. Test a real laid-out button in a
+    // window rather than assuming an arbitrary corner belongs to a control.
+    XCTAssertNil(host.hitTest(CGPoint(x: host.bounds.midX, y: host.bounds.midY), with: nil))
+    let hit = try XCTUnwrap(host.hitTest(buttonPoint, with: nil))
+    XCTAssertTrue(hit.isDescendant(of: chrome.header))
     host.isHidden = true
-    XCTAssertNil(host.hitTest(CGPoint(x: 360, y: 22), with: nil))
+    XCTAssertNil(host.hitTest(buttonPoint, with: nil))
   }
 
   @MainActor func testRunningFlutterAppUsesSystemChrome() async throws {

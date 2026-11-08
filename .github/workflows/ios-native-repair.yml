@@ -90,6 +90,7 @@ jobs:
           fi
           tail -n 35 native-ui-results/xcode-test.log
       - name: Capture actual application UI
+        if: always()
         run: |
           xcrun simctl launch --terminate-running-process "$SIMULATOR_ID" com.github.wgh136.venera > native-ui-results/launch.txt
           sleep 15
