@@ -1,0 +1,43 @@
+name: Build Android for offline signing
+on:
+  push:
+    branches: [codex/1.7.10-android-packaging]
+    paths: ['.github/workflows/android-offline-build.yml']
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '9e85f75f50c5538dc51eaa40cdb4a534cfe476bc'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.4'
+          cache: true
+      - name: Prepare temporary compile-only key
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/compile-only.jks" -storetype JKS -storepass compileonly -keypass compileonly -alias compile-only -keyalg RSA -keysize 2048 -validity 2 -dname "CN=Temporary compile-only"
+          cat > android/key.properties <<EOF
+          storeFile=$RUNNER_TEMP/compile-only.jks
+          storePassword=compileonly
+          keyPassword=compileonly
+          keyAlias=compile-only
+          EOF
+      - run: rustup show
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compile-only-apks
+          path: build/app/outputs/apk/release/*.apk
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
