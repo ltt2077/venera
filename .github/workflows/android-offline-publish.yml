@@ -54,7 +54,7 @@ jobs:
         working-directory: app
         run: |
           python3 ../signing-delivery/release-delivery/apply_signatures.py ../signing-delivery/release-delivery compile-only build/app/outputs/apk/release
-          GITHUB_SHA="$APP_SOURCE" python3 tool/verify_android_release.py tool/desktop_release.json
+          GITHUB_SHA="$APP_SOURCE" python3 ../signing-delivery/release-delivery/verify_android_release.py tool/desktop_release.json
           GITHUB_SHA="$APP_SOURCE" python3 tool/publish_platform_release.py
       - uses: actions/upload-artifact@v4
         with:
