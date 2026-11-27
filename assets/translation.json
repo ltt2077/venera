@@ -1,5 +1,14 @@
 {
   "zh_CN": {
+    "Comic source is unavailable": "漫画源不可用",
+    "No pages found": "本章没有可读页面",
+    "Continue reading": "继续阅读",
+    "Source updates (@count)": "漫画源更新（@count）",
+    "Update all sources": "全部更新",
+    "Source update results": "漫画源更新结果",
+    "Up to date": "已是最新版本",
+    "Update failed: @error": "更新失败：@error",
+    "The source server has not provided the listed version": "漫画源服务器尚未提供目录列出的版本",
     "iOS manages native tabs, toolbar buttons and glass. Accessibility settings may simplify transparency.": "iOS 管理原生标签栏、工具栏按钮和玻璃材质。系统辅助功能设置可能简化透明效果。",
     "Official sources": "官方源列表",
     "Glass sources": "扩展源列表",
@@ -506,6 +515,15 @@
     "Reset to defaults": "已恢复默认"
   },
   "zh_TW": {
+    "Comic source is unavailable": "漫畫來源無法使用",
+    "No pages found": "本章沒有可閱讀的頁面",
+    "Continue reading": "繼續閱讀",
+    "Source updates (@count)": "漫畫來源更新（@count）",
+    "Update all sources": "全部更新",
+    "Source update results": "漫畫來源更新結果",
+    "Up to date": "已是最新版本",
+    "Update failed: @error": "更新失敗：@error",
+    "The source server has not provided the listed version": "漫畫來源伺服器尚未提供目錄列出的版本",
     "iOS manages native tabs, toolbar buttons and glass. Accessibility settings may simplify transparency.": "iOS 管理原生標籤列、工具列按鈕及玻璃材質。系統輔助使用設定可能簡化透明效果。",
     "Official sources": "官方來源清單",
     "Glass sources": "擴充來源清單",

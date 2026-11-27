@@ -13,6 +13,7 @@ env:
   REPAIR_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 jobs:
   test:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'codex/ios-1.7.9-native-glass'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +30,7 @@ jobs:
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
   ios:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'codex/ios-1.7.9-native-glass'
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -52,6 +54,7 @@ jobs:
           if-no-files-found: error
 
   native-ui:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'codex/ios-1.7.9-native-glass'
     runs-on: macos-26
     timeout-minutes: 60
     steps:

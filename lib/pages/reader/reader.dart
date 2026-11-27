@@ -188,25 +188,12 @@ class _ReaderState extends State<Reader>
 
   @override
   void initState() {
-    page = widget.initialPage ?? 1;
-    if (page < 1) {
-      page = 1;
-    }
-    chapter = widget.initialChapter ?? 1;
-    if (chapter < 1) {
-      chapter = 1;
-    }
-    if (widget.initialChapterGroup != null) {
-      for (int i = 0; i < (widget.initialChapterGroup! - 1); i++) {
-        chapter += widget.chapters!.getGroupByIndex(i).length;
-      }
-    }
-    if (widget.initialPage != null) {
-      page = widget.initialPage!;
-      if (page < 1) {
-        page = 1;
-      }
-    }
+    page = math.max(1, widget.initialPage ?? 1);
+    chapter = widget.chapters?.resolveSavedChapter(
+          widget.initialChapter ?? 1,
+          widget.initialChapterGroup,
+        ) ??
+        1;
     // mode = ReaderMode.fromKey(appdata.settings['readerMode']);
     mode = ReaderMode.fromKey(
       appdata.settings.getReaderSetting(cid, type.sourceKey, 'readerMode'),
@@ -250,7 +237,7 @@ class _ReaderState extends State<Reader>
 
   void setImageCacheSize() async {
     var availableRAM = await MemoryInfo.getFreePhysicalMemorySize();
-    if (availableRAM == null) return;
+    if (!mounted || availableRAM == null) return;
     int maxImageCacheSize;
     if (availableRAM < 1 << 30) {
       maxImageCacheSize = 100 << 20;
@@ -277,8 +264,18 @@ class _ReaderState extends State<Reader>
     focusNode.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     stopVolumeEvent();
-    Future.microtask(() {
-      DataSync().onDataChanged();
+    final pendingHistory = _updateHistoryTimer == null ? null : history;
+    _updateHistoryTimer?.cancel();
+    Future.microtask(() async {
+      try {
+        if (pendingHistory != null) {
+          await HistoryManager().addHistoryAsync(pendingHistory);
+        }
+      } catch (error, stack) {
+        Log.error('Reader history', '$error\n$stack');
+      } finally {
+        DataSync().onDataChanged();
+      }
     });
     PaintingBinding.instance.imageCache.maximumSizeBytes = 100 << 20;
     disposeReaderWindow();

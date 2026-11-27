@@ -19,6 +19,7 @@ class _ReaderImagesState extends State<_ReaderImages> {
     reader = context.reader;
     reader.isLoading = true;
     super.initState();
+    scheduleMicrotask(load);
   }
 
   @override
@@ -35,61 +36,57 @@ class _ReaderImagesState extends State<_ReaderImages> {
     }
   }
 
-  void load() async {
-    if (inProgress) return;
+  Future<void> load() async {
+    if (!mounted || inProgress) return;
     inProgress = true;
-    if (reader.type == ComicType.local ||
-        (LocalManager().isDownloaded(
+    final chapter = reader.chapter;
+    List<String>? images;
+    String? loadError;
+    try {
+      if (reader.type == ComicType.local ||
+          LocalManager().isDownloaded(
+            reader.cid,
+            reader.type,
+            chapter,
+            reader.widget.chapters,
+          )) {
+        images = await LocalManager().getImages(
           reader.cid,
           reader.type,
-          reader.chapter,
-          reader.widget.chapters,
-        ))) {
-      try {
-        var images = await LocalManager().getImages(
-          reader.cid,
-          reader.type,
-          reader.chapter,
+          chapter,
         );
-        setState(() {
-          reader.images = images;
-          reader.isLoading = false;
-          inProgress = false;
-          _handleJumpToLastPage();
-          Future.microtask(() {
-            reader.updateHistory();
-          });
-        });
-      } catch (e) {
-        setState(() {
-          error = e.toString();
-          reader.isLoading = false;
-          inProgress = false;
-        });
-      }
-    } else {
-      var cp = reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1);
-      var res = await reader.type.comicSource!.loadComicPages!(
-        reader.widget.cid,
-        cp,
-      );
-      if (res.error) {
-        setState(() {
-          error = res.errorMessage;
-          reader.isLoading = false;
-          inProgress = false;
-        });
       } else {
-        setState(() {
-          reader.images = res.data;
-          reader.isLoading = false;
-          inProgress = false;
-          _handleJumpToLastPage();
-          Future.microtask(() {
-            reader.updateHistory();
-          });
-        });
+        final loader = reader.type.comicSource?.loadComicPages;
+        if (loader == null) {
+          loadError = 'Comic source is unavailable'.tl;
+        } else {
+          final chapterId = reader.widget.chapters?.ids.elementAtOrNull(
+            chapter - 1,
+          );
+          final result = await loader(reader.cid, chapterId);
+          images = result.dataOrNull;
+          loadError = result.errorMessage;
+        }
       }
+    } catch (exception) {
+      loadError = exception.toString();
+    }
+    if (!mounted || chapter != reader.chapter) return;
+    loadError ??= images == null || images.isEmpty ? 'No pages found'.tl : null;
+    setState(() {
+      error = loadError;
+      reader.isLoading = false;
+      inProgress = false;
+      if (loadError == null) {
+        reader.images = images;
+        _handleJumpToLastPage();
+        reader._page = reader.page.clamp(1, reader.maxPage);
+      }
+    });
+    if (loadError == null) {
+      Future.microtask(() {
+        if (mounted && chapter == reader.chapter) reader.updateHistory();
+      });
     }
     context.readerScaffold.update();
   }
@@ -97,7 +94,6 @@ class _ReaderImagesState extends State<_ReaderImages> {
   @override
   Widget build(BuildContext context) {
     if (reader.isLoading) {
-      load();
       return const Center(child: CircularProgressIndicator());
     } else if (error != null) {
       return GestureDetector(
@@ -112,6 +108,7 @@ class _ReaderImagesState extends State<_ReaderImages> {
                 reader.isLoading = true;
                 error = null;
               });
+              load();
             },
           ),
         ),

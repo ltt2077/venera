@@ -4,6 +4,7 @@ class SideBarRoute<T> extends PopupRoute<T> {
   SideBarRoute(this.widget,
       {this.showBarrier = true,
       this.useSurfaceTintColor = false,
+      this.useNativeGlass = false,
       this.dismissible = true,
       required this.width,
       this.addBottomPadding = true,
@@ -14,6 +15,8 @@ class SideBarRoute<T> extends PopupRoute<T> {
   final bool showBarrier;
 
   final bool useSurfaceTintColor;
+
+  final bool useNativeGlass;
 
   final bool dismissible;
 
@@ -89,20 +92,24 @@ class SideBarRoute<T> extends PopupRoute<T> {
 
     final sideBarWidth = math.min(width, MediaQuery.of(context).size.width);
     final scheme = Theme.of(context).colorScheme;
+    final nativeGlass = useNativeGlass && Glass.usesNative(context);
+    final borderRadius = showSideBar
+        ? const BorderRadius.horizontal(left: Radius.circular(16))
+        : null;
     // Theme surface — never surfaceTint. surfaceTint is the M3 elevation
     // overlay / primary-ish color; with liquid glass, ThemeData.canvasColor is
     // transparent so a bare Material() let that tint paint the whole panel
     // (pale periwinkle + light onSurface text = unreadable comments / reader
     // settings). Keep an optional light tint overlay via useSurfaceTintColor.
-    final panelColor = scheme.surface;
+    final panelColor = nativeGlass
+        ? scheme.surface.withValues(alpha: 0.32)
+        : scheme.surface;
 
     body = Container(
       decoration: BoxDecoration(
-        borderRadius: showSideBar
-            ? const BorderRadius.horizontal(left: Radius.circular(16))
-            : null,
-        color: panelColor,
-        boxShadow: context.brightness == ui.Brightness.dark ? [
+        borderRadius: borderRadius,
+        color: nativeGlass ? null : panelColor,
+        boxShadow: !nativeGlass && context.brightness == ui.Brightness.dark ? [
           BoxShadow(
             color: Colors.white.withAlpha(50),
             blurRadius: 10,
@@ -110,7 +117,7 @@ class SideBarRoute<T> extends PopupRoute<T> {
           ),
         ] : null,
       ),
-      clipBehavior: Clip.antiAlias,
+      clipBehavior: nativeGlass ? Clip.none : Clip.antiAlias,
       constraints: BoxConstraints(maxWidth: sideBarWidth),
       height: MediaQuery.of(context).size.height,
       child: GestureDetector(
@@ -138,6 +145,10 @@ class SideBarRoute<T> extends PopupRoute<T> {
         ),
       ),
     );
+
+    if (nativeGlass) {
+      body = GlassSurface(borderRadius: borderRadius, child: body);
+    }
 
     if (App.isIOS) {
       body = IOSBackGestureDetector(
@@ -176,6 +187,7 @@ class SideBarRoute<T> extends PopupRoute<T> {
 Future<void> showSideBar(BuildContext context, Widget widget,
     {bool showBarrier = true,
     bool useSurfaceTintColor = false,
+    bool useNativeGlass = false,
     bool dismissible = true,
     double width = 500,
     bool addTopPadding = false}) {
@@ -184,6 +196,7 @@ Future<void> showSideBar(BuildContext context, Widget widget,
       widget,
       showBarrier: showBarrier,
       useSurfaceTintColor: useSurfaceTintColor,
+      useNativeGlass: useNativeGlass,
       dismissible: dismissible,
       width: width,
       addTopPadding: addTopPadding,

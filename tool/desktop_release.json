@@ -1,7 +1,7 @@
 {
-  "version": "1.7.9",
-  "build": 180,
-  "release": "v1.7.9-glass",
-  "supplement": "apple-windows-1.7.9",
-  "reuse": {}
+  "version": "1.7.10",
+  "build": 181,
+  "release": "v1.7.10-glass",
+  "application_id": "com.github.wgh136.venera",
+  "certificate_sha256": "7cd7e12a9878a39da5aeb5f7e51d7a8198a1b9ee0567ebce583e4d1c55e26f70"
 }

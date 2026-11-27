@@ -7,6 +7,7 @@ class ReaderWithLoading extends StatefulWidget {
     required this.sourceKey,
     this.initialEp,
     this.initialPage,
+    this.resumeHistory,
   });
 
   final String id;
@@ -16,6 +17,8 @@ class ReaderWithLoading extends StatefulWidget {
   final int? initialEp;
 
   final int? initialPage;
+
+  final History? resumeHistory;
 
   @override
   State<ReaderWithLoading> createState() => _ReaderWithLoadingState();
@@ -41,56 +44,59 @@ class _ReaderWithLoadingState
 
   @override
   Future<Res<ReaderProps>> loadData() async {
-    var comicSource = ComicSource.find(widget.sourceKey);
-    var history = HistoryManager().find(
-      widget.id,
-      ComicType.fromKey(widget.sourceKey),
-    );
-    if (comicSource == null) {
-      var localComic = LocalManager().find(
-        widget.id,
-        ComicType.fromKey(widget.sourceKey),
-      );
-      if (localComic == null) {
-        return Res.error("comic not found");
+    final type = ComicType.fromKey(widget.sourceKey);
+    final comicSource = ComicSource.find(widget.sourceKey);
+    final history =
+        widget.resumeHistory ?? HistoryManager().find(widget.id, type);
+    if (type == ComicType.local ||
+        (comicSource != null && widget.resumeHistory != null)) {
+      final localComic = LocalManager().find(widget.id, type);
+      if (localComic != null &&
+          (type == ComicType.local ||
+              LocalManager().isDownloaded(
+                widget.id,
+                type,
+                localComic.chapters?.resolveSavedChapter(
+                      history!.ep,
+                      history.group,
+                    ) ??
+                    1,
+              ))) {
+        return Res(
+          ReaderProps(
+            type: type,
+            cid: widget.id,
+            name: localComic.title,
+            chapters: localComic.chapters,
+            history:
+                history ?? History.fromModel(model: localComic, ep: 0, page: 0),
+            author: localComic.subtitle,
+            tags: localComic.tags,
+          ),
+        );
       }
-      return Res(
-        ReaderProps(
-          type: ComicType.fromKey(widget.sourceKey),
-          cid: widget.id,
-          name: localComic.title,
-          chapters: localComic.chapters,
-          history: history ??
-              History.fromModel(
-                model: localComic,
-                ep: 0,
-                page: 0,
-              ),
-          author: localComic.subtitle,
-          tags: localComic.tags,
-        ),
-      );
-    } else {
-      var comic = await comicSource.loadComicInfo!(widget.id);
+    }
+    final loadComic = comicSource?.loadComicInfo;
+    if (loadComic == null) return Res.error('Comic source is unavailable'.tl);
+    try {
+      final comic = await loadComic(widget.id);
       if (comic.error) {
         return Res.fromErrorRes(comic);
       }
       return Res(
         ReaderProps(
-          type: ComicType.fromKey(widget.sourceKey),
+          type: type,
           cid: widget.id,
           name: comic.data.title,
           chapters: comic.data.chapters,
-          history: history ??
-              History.fromModel(
-                model: comic.data,
-                ep: 0,
-                page: 0,
-              ),
+          history:
+              history ?? History.fromModel(model: comic.data, ep: 0, page: 0),
           author: comic.data.findAuthor() ?? "",
           tags: comic.data.plainTags,
         ),
       );
+    } catch (error) {
+      return Res.error(error.toString());
     }
   }
 }

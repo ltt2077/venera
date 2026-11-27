@@ -412,8 +412,25 @@ class ComicChapters {
   /// Get total number of chapters
   int get length {
     return isGrouped
-        ? _groupedChapters!.values.map((e) => e.length).reduce((a, b) => a + b)
+        ? _groupedChapters!.values.fold<int>(
+            0, (count, group) => count + group.length)
         : _chapters!.length;
+  }
+
+  /// Convert the saved one-based group and chapter numbers to a reader index.
+  int resolveSavedChapter(int chapter, int? group) {
+    if (isGrouped && group != null && group > 0 && group <= groupCount) {
+      final chapters = getGroupByIndex(group - 1);
+      if (chapters.isNotEmpty) {
+        var index = chapter.clamp(1, chapters.length);
+        for (var i = 0; i < group - 1; i++) {
+          index += getGroupByIndex(i).length;
+        }
+        return index;
+      }
+    }
+    final total = length;
+    return total > 0 ? chapter.clamp(1, total) : 1;
   }
 
   /// Get the number of groups

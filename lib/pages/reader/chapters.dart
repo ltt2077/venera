@@ -30,6 +30,12 @@ class _ChaptersViewState extends State<_ChaptersView> {
   }
 
   @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     var chapters = widget.reader.widget.chapters!;
     var current = widget.reader.chapter - 1;
@@ -135,10 +141,20 @@ class _GroupedChaptersViewState extends State<_GroupedChaptersView>
   }
 
   @override
+  void dispose() {
+    tabController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Appbar(title: Text("Chapters".tl)),
+        Appbar(
+          title: Text("Chapters".tl),
+          style: Glass.usesNative(context) ? AppbarStyle.shadow : AppbarStyle.blur,
+        ),
         AppTabBar(
           controller: tabController,
           tabs: chapters.groups.map((e) => Tab(text: e)).toList(),

@@ -11,6 +11,7 @@ class _ReaderScaffold extends StatefulWidget {
 
 class _ReaderScaffoldState extends State<_ReaderScaffold> {
   bool _isOpen = false;
+  bool _showToolbars = false;
 
   static const kTopBarHeight = 56.0;
 
@@ -115,6 +116,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
     }
     setState(() {
       _isOpen = !_isOpen;
+      if (_isOpen) _showToolbars = true;
     });
   }
 
@@ -151,7 +153,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
           left: 0,
           right: 0,
           height: kTopBarHeight + context.padding.top,
-          child: buildTop(),
+          child: _showToolbars ? buildTop() : const SizedBox.shrink(),
         ),
         AnimatedPositioned(
           duration: const Duration(milliseconds: 180),
@@ -160,7 +162,13 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
               : -(kBottomBarHeight + MediaQuery.of(context).padding.bottom),
           left: 0,
           right: 0,
-          child: buildBottom(),
+          height: kBottomBarHeight + context.padding.bottom,
+          onEnd: () {
+            if (!_isOpen && _showToolbars) {
+              setState(() => _showToolbars = false);
+            }
+          },
+          child: _showToolbars ? buildBottom() : const SizedBox.shrink(),
         ),
       ],
     );
@@ -173,15 +181,18 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
       );
 
     final glassOn = Glass.shouldBlur(context);
+    final nativeGlass = Glass.usesNative(context);
     return BlurEffect(
       useGlassProfile: true,
       blur: glassOn ? Glass.blurSigma(context) : 15,
       child: Container(
         padding: EdgeInsets.only(top: context.padding.top),
         decoration: BoxDecoration(
-          color: context.colorScheme.surface.toOpacity(
-            glassOn ? Glass.fillOpacity(context) : 0.92,
-          ),
+          color: nativeGlass
+              ? null
+              : context.colorScheme.surface.toOpacity(
+                  glassOn ? Glass.fillOpacity(context) : 0.92,
+                ),
           border: Border(
             bottom: BorderSide(
               color: Colors.grey.toOpacity(glassOn ? 0.35 : 0.5),
@@ -558,14 +569,17 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
     );
 
     final glassOn = Glass.shouldBlur(context);
+    final nativeGlass = Glass.usesNative(context);
     return BlurEffect(
       useGlassProfile: true,
       blur: glassOn ? Glass.blurSigma(context) : 15,
       child: Container(
         decoration: BoxDecoration(
-          color: context.colorScheme.surface.toOpacity(
-            glassOn ? Glass.fillOpacity(context) : 0.92,
-          ),
+          color: nativeGlass
+              ? null
+              : context.colorScheme.surface.toOpacity(
+                  glassOn ? Glass.fillOpacity(context) : 0.92,
+                ),
           border: isOpen
               ? Border(
                   top: BorderSide(
@@ -666,6 +680,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
           ? _GroupedChaptersView(context.reader)
           : _ChaptersView(context.reader),
       width: 400,
+      useNativeGlass: true,
     );
   }
 
@@ -734,7 +749,11 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
     );
   }
 
-  void _openSideBar(Widget widget, {double width = 400}) {
+  void _openSideBar(
+    Widget widget, {
+    double width = 400,
+    bool useNativeGlass = false,
+  }) {
     _gestureDetectorState?.ignoreNextTap();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -742,6 +761,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
         context,
         widget,
         width: width,
+        useNativeGlass: useNativeGlass,
         dismissible: true,
       ).whenComplete(() {
         _gestureDetectorState?.clearIgnoreNextTap();

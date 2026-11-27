@@ -1,18 +1,23 @@
-"""Package the existing version with a clean SideStore-compatible archive."""
+"""Package the current iOS build with a clean SideStore-compatible archive."""
 import hashlib
 import json
 import os
 import plistlib
+import re
 import stat
+import subprocess
 import zipfile
 from pathlib import Path
 
 
 def main():
+    match = re.search(r'^version:\s*(\d+\.\d+\.\d+)\+(\d+)\s*$', Path('pubspec.yaml').read_text(), re.M)
+    assert match, 'Expected a version and build number in pubspec.yaml'
+    version, build = match.groups()
     app = Path('build/ios/iphoneos/Runner.app')
     info = plistlib.loads((app / 'Info.plist').read_bytes())
-    assert info['CFBundleShortVersionString'] == '1.7.9'
-    assert str(info['CFBundleVersion']) == '180'
+    assert info['CFBundleShortVersionString'] == version
+    assert str(info['CFBundleVersion']) == build
     assert info['CFBundleIdentifier'] == 'com.github.wgh136.venera'
     assert info['VeneraNativeUIRevision'] == 'ios-179-system-controls-1'
     assert int(info['DTSDKName'].replace('iphoneos', '').split('.')[0]) >= 26
@@ -22,7 +27,7 @@ def main():
         assert marker in binary, 'Missing compiled native UI: ' + marker.decode()
     dist = Path('dist')
     dist.mkdir(exist_ok=True)
-    target = dist / 'venera-1.7.9-ios-unsigned.ipa'
+    target = dist / f'venera-{version}-ios-unsigned.ipa'
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in sorted(app.rglob('*')):
             if any(p == '__MACOSX' or p == '.DS_Store' or p.startswith('._') for p in path.parts):
@@ -44,9 +49,12 @@ def main():
         assert 'Payload/Runner.app/Info.plist' in archive.namelist()
     sha = hashlib.sha256(target.read_bytes()).hexdigest()
     (dist / 'SHA256-ios-native-ui.txt').write_text(f'{sha}  {target.name}\n')
+    source_commit = os.environ.get('REPAIR_SOURCE_COMMIT') or os.environ.get('GITHUB_SHA')
+    if not source_commit:
+        source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
     provenance = {
-        'source_commit': os.environ.get('REPAIR_SOURCE_COMMIT', os.environ['GITHUB_SHA']),
-        'version': '1.7.9', 'build': '180',
+        'source_commit': source_commit,
+        'version': version, 'build': build,
         'bundle_id': info['CFBundleIdentifier'],
         'native_ui_revision': info['VeneraNativeUIRevision'],
         'sdk': info['DTSDKName'], 'xcode': info['DTXcode'],

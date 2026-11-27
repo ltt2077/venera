@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
+import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
@@ -15,6 +16,7 @@ import 'package:venera/pages/downloading_page.dart';
 import 'package:venera/pages/follow_updates_page.dart';
 import 'package:venera/pages/history_page.dart';
 import 'package:venera/pages/image_favorites_page/image_favorites_page.dart';
+import 'package:venera/pages/reader/reader.dart';
 import 'package:venera/pages/search_page.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/import_comic.dart';
@@ -255,6 +257,46 @@ class _HistoryState extends State<_History> {
 
   @override
   Widget build(BuildContext context) {
+    final recent = history.where((item) {
+      if (item.page < 1) return false;
+      if (item.type == ComicType.local) {
+        return LocalManager().find(item.id, item.type) != null;
+      }
+      final source = item.type.comicSource;
+      return source?.loadComicInfo != null && source?.loadComicPages != null;
+    }).firstOrNull;
+    return SliverMainAxisGroup(
+      slivers: [
+        if (recent != null)
+          SliverToBoxAdapter(
+            child: Card(
+              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              elevation: 0,
+              color: context.colorScheme.secondaryContainer,
+              child: ListTile(
+                leading: const Icon(Icons.play_circle_outline),
+                title: Text('Continue reading'.tl),
+                subtitle: Text('${recent.title}\n${recent.description}',
+                    maxLines: 3, overflow: TextOverflow.ellipsis),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  App.rootContext.to(
+                    () => ReaderWithLoading(
+                      id: recent.id,
+                      sourceKey: recent.sourceKey,
+                      resumeHistory: recent,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        buildHistoryCard(context),
+      ],
+    );
+  }
+
+  Widget buildHistoryCard(BuildContext context) {
     return SliverToBoxAdapter(
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),

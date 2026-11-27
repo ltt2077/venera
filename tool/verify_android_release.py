@@ -5,11 +5,13 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
 def main():
-    spec = json.loads(Path('tool/android_release.json').read_text())
+    spec_path = sys.argv[1] if len(sys.argv) > 1 else 'tool/android_release.json'
+    spec = json.loads(Path(spec_path).read_text())
     tools = Path(os.environ['ANDROID_HOME']) / 'build-tools'
     versions = sorted(tools.iterdir(), key=lambda p: tuple(
         int(n) for n in re.findall(r'\d+', p.name)))
@@ -43,6 +45,13 @@ def main():
         print('Verified', target.name, 'versionCode=' + str(expected_code), 'original signing identity')
     (output / 'SHA256SUMS.txt').write_text('\n'.join(checksums) + '\n')
     (output / 'signing-certificate-sha256.txt').write_text(spec['certificate_sha256'] + '\n')
+    if source_commit := os.environ.get('GITHUB_SHA'):
+        (output / 'BUILD-INFO-android.txt').write_text(
+            f'Source commit: {source_commit}\n'
+            f"Version: {spec['version']}+{spec['build']}\n"
+            f"Application ID: {spec['application_id']}\n"
+            f"Signing certificate SHA256: {spec['certificate_sha256']}\n"
+        )
 
 
 if __name__ == '__main__':

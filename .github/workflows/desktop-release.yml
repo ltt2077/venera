@@ -1,17 +1,24 @@
-name: Publish Apple and Windows packages
+name: Build and release Venera Glass on four platforms
 on:
   workflow_dispatch:
   push:
-    branches: [glass-cloud]
+    branches: [glass-cloud, codex/v1.7.10-maintenance]
     paths:
       - tool/desktop_release.json
+      - lib/**
+      - assets/translation.json
+      - test/**
+      - pubspec.yaml
+      - tool/package_ios_native.py
+      - tool/verify_android_release.py
+      - tool/publish_platform_release.py
       - .github/workflows/desktop-release.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: desktop-release-${{ github.sha }}
+  group: glass-platform-release-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -20,19 +27,19 @@ env:
 jobs:
   test:
     runs-on: ubuntu-22.04
-    outputs:
-      reused_platforms: ${{ steps.release.outputs.reused_platforms }}
     steps:
       - uses: actions/checkout@v4
-      - name: Read platform build plan
-        id: release
+      - name: Verify version across the app and all packages
         run: |
           python3 - <<'PY'
-          import json, os
+          import json, re
           from pathlib import Path
           spec = json.loads(Path('tool/desktop_release.json').read_text())
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write('reused_platforms=' + json.dumps(list(spec.get('reuse', {}))) + '\n')
+          version = re.search(r'^version:\s*(\S+)', Path('pubspec.yaml').read_text(), re.M)[1]
+          about = re.search(r'final version = "([^"]+)"', Path('lib/foundation/app.dart').read_text())[1]
+          assert version == f"{spec['version']}+{spec['build']}"
+          assert about == spec['version']
+          assert spec['release'] == f"v{about}-glass"
           PY
       - uses: subosito/flutter-action@v2
         with:
@@ -47,8 +54,6 @@ jobs:
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
   ios:
-    needs: test
-    if: ${{ !contains(fromJSON(needs.test.outputs.reused_platforms), 'ios') }}
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -64,41 +69,15 @@ jobs:
       - run: flutter pub get
       - name: Build iOS with native UIKit glass
         run: flutter build ios --release --no-codesign
-      - name: Package IPA for user signing
-        run: |
-          python3 - <<'PY'
-          import json, os, plistlib, shutil, subprocess
-          from pathlib import Path
-          spec = json.loads(Path('tool/desktop_release.json').read_text())
-          app = Path('build/ios/iphoneos/Runner.app')
-          info = plistlib.loads((app/'Info.plist').read_bytes())
-          assert info['CFBundleShortVersionString'] == spec['version']
-          assert info['CFBundleIdentifier'] == 'com.github.wgh136.venera'
-          assert (app / info['CFBundleExecutable']).is_file()
-          payload = Path('package-ios/Payload')
-          payload.mkdir(parents=True)
-          shutil.copytree(app, payload/'Runner.app', symlinks=True)
-          Path('dist').mkdir()
-          target = str(Path('dist', f"venera-{spec['version']}-ios-unsigned.ipa").resolve())
-          # SideStore rejects zip Extra Field 0x7875 from ditto; use zip -X.
-          subprocess.run(['zip','-X','-r',target,'Payload'], cwd='package-ios', check=True)
-          Path('dist/BUILD-INFO-ios.txt').write_text(
-              f"Source commit: {os.environ['GITHUB_SHA']}\n"
-              f"Version: {spec['version']}+{spec['build']}\n"
-              f"Unsigned IPA: sign with your own Apple identity before installation.\n"
-              f"Native glass: UIKit UIGlassEffect overlay dock on iOS 26+ (not Flutter UiKitView).\n"
-              f"Packaging: zip -X (SideStore-safe, no 0x7875).\n"
-          )
-          PY
+      - name: Verify and package IPA for user signing
+        run: python3 tool/package_ios_native.py
       - uses: actions/upload-artifact@v4
         with:
-          name: venera-desktop-ios
+          name: venera-platform-ios
           path: dist/
           if-no-files-found: error
 
   macos:
-    needs: test
-    if: ${{ !contains(fromJSON(needs.test.outputs.reused_platforms), 'macos') }}
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -126,6 +105,8 @@ jobs:
           app = Path('build/macos/Build/Products/Release/venera.app')
           info = plistlib.loads((app/'Contents/Info.plist').read_bytes())
           assert info['CFBundleShortVersionString'] == spec['version']
+          assert str(info['CFBundleVersion']) == str(spec['build'])
+          assert int(info['DTSDKName'].replace('macosx', '').split('.')[0]) >= 26
           binary = app / 'Contents/MacOS' / info['CFBundleExecutable']
           arches = subprocess.check_output(['lipo','-archs',str(binary)], text=True).split()
           assert 'arm64' in arches and 'x86_64' in arches, f'Expected universal app, got {arches}'
@@ -142,13 +123,11 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: venera-desktop-macos
+          name: venera-platform-macos
           path: dist/
           if-no-files-found: error
 
   windows:
-    needs: test
-    if: ${{ !contains(fromJSON(needs.test.outputs.reused_platforms), 'windows') }}
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
@@ -169,6 +148,9 @@ jobs:
           $spec = Get-Content tool/desktop_release.json | ConvertFrom-Json
           $releaseDir = (Resolve-Path build/windows/x64/runner/Release).Path
           if (!(Test-Path "$releaseDir/venera.exe") -or !(Test-Path "$releaseDir/flutter_windows.dll")) { throw 'Incomplete Windows bundle' }
+          $exeVersion = (Get-Item "$releaseDir/venera.exe").VersionInfo
+          $fileVersion = "$($exeVersion.FileMajorPart).$($exeVersion.FileMinorPart).$($exeVersion.FileBuildPart).$($exeVersion.FilePrivatePart)"
+          if ($fileVersion -ne "$($spec.version).$($spec.build)") { throw "Unexpected Windows version $fileVersion" }
           New-Item dist -ItemType Directory -Force | Out-Null
           $distDir = (Resolve-Path dist).Path
           Compress-Archive -Path "$releaseDir/*" -DestinationPath "$distDir/venera-$($spec.version)-windows-x64.zip"
@@ -178,52 +160,74 @@ jobs:
           "Source commit: $env:GITHUB_SHA`nVersion: $($spec.version)+$($spec.build)`nArchitecture: x64`nNot Authenticode signed." | Set-Content dist/BUILD-INFO-windows.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: venera-desktop-windows
+          name: venera-platform-windows
           path: dist/
           if-no-files-found: error
 
-  publish:
-    needs: [test, ios, macos, windows]
-    if: ${{ always() && needs.test.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped') && (needs.macos.result == 'success' || needs.macos.result == 'skipped') && (needs.windows.result == 'success' || needs.windows.result == 'skipped') }}
+  android:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-      actions: read
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Configure the existing Android signing identity
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEY_PROPERTIES: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+        run: python3 tool/prepare_android_signing.py
+      - run: rustup show
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - name: Verify APK identity, certificate and version
+        run: python3 tool/verify_android_release.py tool/desktop_release.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: venera-platform-android
+          path: dist/
+          if-no-files-found: error
+      - name: Remove temporary signing credentials
+        if: always()
+        run: rm -f android/key.properties "$RUNNER_TEMP/venera-release.jks"
+
+  bundle:
+    needs: [test, android, ios, macos, windows]
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: venera-desktop-*
+          pattern: venera-platform-*
           merge-multiple: true
           path: dist/
-      - name: Verify all packages and publish supplement
+      - name: Verify four-platform delivery
+        run: python3 tool/publish_platform_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: venera-glass-four-platforms
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: bundle
+    if: github.repository == 'ltt2077/venera' && (github.ref == 'refs/heads/glass-cloud' || github.ref == 'refs/heads/codex/v1.7.10-maintenance')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: venera-glass-four-platforms
+          path: dist/
+      - name: Publish one release with all verified packages
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          import hashlib, json, os, subprocess
-          from pathlib import Path
-          spec = json.loads(Path('tool/desktop_release.json').read_text())
-          repo = os.environ['GITHUB_REPOSITORY']
-          for platform, source in spec.get('reuse', {}).items():
-              run = json.loads(subprocess.check_output(['gh','api',f"repos/{repo}/actions/runs/{source['run']}"], text=True))
-              assert run['head_sha'] == source['commit'], f'Reused {platform} commit mismatch'
-              jobs = json.loads(subprocess.check_output(['gh','api',f"repos/{repo}/actions/runs/{source['run']}/jobs?per_page=100"], text=True))['jobs']
-              assert any(job['name'] == platform and job['conclusion'] == 'success' for job in jobs), f'Reused {platform} build has not passed'
-              subprocess.run(['gh','run','download',str(source['run']),'--repo',repo,'--name',f'venera-desktop-{platform}','--dir','dist'], check=True)
-          current = subprocess.check_output(['gh','api',f'repos/{repo}/branches/glass-cloud','--jq','.commit.sha'], text=True).strip()
-          assert current == os.environ['GITHUB_SHA'], 'Newer source exists; refusing to publish a stale manifest'
-          expected = [f"venera-{spec['version']}-{suffix}" for suffix in ['ios-unsigned.ipa','macos-universal.dmg','macos-universal.zip','windows-x64.zip','windows-x64-setup.exe']]
-          for name in expected:
-              assert (Path('dist')/name).stat().st_size > 100000, f'Missing/empty package: {name}'
-          sums = [hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name for p in sorted(Path('dist').iterdir()) if p.is_file()]
-          Path('dist/SHA256SUMS-APPLE-DESKTOP.txt').write_text('\n'.join(sums)+'\n')
-          release = json.loads(subprocess.check_output(['gh','release','view',spec['release'],'--repo',os.environ['GITHUB_REPOSITORY'],'--json','body,isDraft'], text=True))
-          assert not release['isDraft'], 'Expected the already-published Android release'
-          marker = '\n\n### Apple / Windows supplement\n'
-          original = release['body'].split(marker)[0]
-          notes = original + marker + f"Supplement manifest at commit `{os.environ['GITHUB_SHA']}`; exact per-platform source commits are recorded in BUILD-INFO files (existing Android assets and tag are preserved).\n\n- iOS 15+: unsigned IPA for user signing; UIKit glass on iOS/iPadOS 26+.\n- macOS: universal arm64/x86_64 DMG/ZIP, ad-hoc signed, not notarized; AppKit glass on macOS 26+.\n- Windows: x64 portable ZIP and installer, not Authenticode signed.\n- Older supported Apple OS versions retain the existing glass fallback.\n- BUILD-INFO files identify the exact source commit and signing status; SHA256SUMS-APPLE-DESKTOP.txt verifies downloads.\n\nNative composition removes custom shader effects from Apple chrome. No device FPS/power improvement is claimed without hardware profiling.\n"
-          Path('supplement-release-notes.md').write_text(notes)
-          subprocess.run(['gh','release','upload',spec['release'],*[str(p) for p in Path('dist').iterdir()],'--repo',os.environ['GITHUB_REPOSITORY'],'--clobber'], check=True)
-          subprocess.run(['gh','release','edit',spec['release'],'--repo',os.environ['GITHUB_REPOSITORY'],'--notes-file','supplement-release-notes.md'], check=True)
-          PY
+        run: python3 tool/publish_platform_release.py --publish

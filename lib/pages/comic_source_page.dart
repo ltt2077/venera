@@ -22,17 +22,47 @@ class ComicSourcePage extends StatelessWidget {
 
   static final _updateQueue = ComicSourceUpdateQueue();
 
+  static bool _reachesVersion(String version, String minimum) =>
+      version == minimum || compareSemVer(version, minimum);
+
   static Future<void> update(ComicSource source, [bool showLoading = true]) {
-    return _updateQueue.run(source.key, () {
-      final current = ComicSource.find(source.key);
-      return current == null ? Future.value() : _update(current, showLoading);
+    return _updateSource(source.key, showLoading: showLoading);
+  }
+
+  static Future<void> _updateSource(
+    String key, {
+    required bool showLoading,
+    String? minimumVersion,
+  }) async {
+    await _updateQueue.run(key, () {
+      final current = ComicSource.find(key);
+      if (current == null) {
+        if (minimumVersion != null)
+          throw StateError('Comic source is unavailable'.tl);
+        return Future.value();
+      }
+      if (minimumVersion != null &&
+          _reachesVersion(current.version, minimumVersion)) {
+        return Future.value();
+      }
+      return _update(current, showLoading, minimumVersion);
     });
+    if (minimumVersion != null) {
+      final installed = ComicSource.find(key);
+      if (installed == null) throw StateError('Comic source is unavailable'.tl);
+      if (!_reachesVersion(installed.version, minimumVersion)) {
+        throw StateError(
+          'The source server has not provided the listed version'.tl,
+        );
+      }
+    }
   }
 
   static Future<void> _update(
-    ComicSource source, [
-    bool showLoading = true,
-  ]) async {
+    ComicSource source,
+    bool showLoading,
+    String? minimumVersion,
+  ) async {
     if (!source.url.isURL) {
       if (showLoading) {
         App.rootContext.showMessage(message: "Invalid url config");
@@ -74,6 +104,12 @@ class ComicSourcePage extends StatelessWidget {
           );
           if (!identical(manager.find(source.key), source)) {
             throw StateError('Source was changed during update');
+          }
+          if (minimumVersion != null &&
+              !_reachesVersion(candidate.version, minimumVersion)) {
+            throw StateError(
+              'The source server has not provided the listed version'.tl,
+            );
           }
           return candidate;
         },
@@ -674,7 +710,7 @@ class _CheckUpdatesButton extends StatefulWidget {
 class _CheckUpdatesButtonState extends State<_CheckUpdatesButton> {
   bool isLoading = false;
 
-  void check() async {
+  Future<void> check() async {
     setState(() {
       isLoading = true;
     });
@@ -686,65 +722,128 @@ class _CheckUpdatesButtonState extends State<_CheckUpdatesButton> {
       } else if (count == 0) {
         context.showMessage(message: "No updates".tl);
       } else {
-        await showUpdateDialog();
+        await showUpdateDialog(ComicSourceManager().availableUpdates);
       }
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
   }
 
-  Future<void> showUpdateDialog() async {
-    var text = ComicSourceManager().availableUpdates.entries
-        .map((e) {
-          return "${ComicSource.find(e.key)?.name ?? e.key}: ${e.value}";
-        })
-        .join("\n");
-    bool doUpdate = false;
-    await showDialog(
-      context: App.rootContext,
+  Future<void> showUpdateDialog(Map<String, String> updates) async {
+    if (updates.isEmpty) return;
+    final sources = [
+      for (final entry in updates.entries)
+        if (ComicSource.find(entry.key) case final source?)
+          (
+            key: entry.key,
+            name: source.name,
+            current: source.version,
+            target: entry.value,
+          ),
+    ];
+    if (sources.isEmpty) return;
+    final doUpdate = await showDialog<bool>(
+      context: context,
       builder: (context) {
-        return ContentDialog(
-          title: "Updates".tl,
-          content: Text(text).paddingHorizontal(16),
+        return AlertDialog(
+          title: Text(
+            'Source updates (@count)'.tlParams({'count': sources.length}),
+          ),
+          scrollable: true,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final source in sources)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(source.name),
+                  subtitle: Text('${source.current} → ${source.target}'),
+                ),
+            ],
+          ),
           actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'.tl),
+            ),
             FilledButton(
-              onPressed: () {
-                doUpdate = true;
-                context.pop();
-              },
-              child: Text("Update".tl),
+              onPressed: () => Navigator.pop(context, true),
+              child: Text('Update all sources'.tl),
             ),
           ],
         );
       },
     );
-    if (doUpdate && mounted) {
-      var loadingController = showLoadingDialog(
-        context,
-        message: "Updating".tl,
-        withProgress: true,
-      );
-      int current = 0;
-      int total = ComicSourceManager().availableUpdates.length;
-      try {
-        var shouldUpdate = ComicSourceManager().availableUpdates.keys.toList();
-        for (var key in shouldUpdate) {
-          final source = ComicSource.find(key);
-          if (source == null) continue;
-          await ComicSourcePage.update(source, false);
-          current++;
-          loadingController.setProgress(current / total);
+    if (doUpdate != true || !mounted) return;
+    final loadingController = showLoadingDialog(
+      context,
+      message: 'Updating'.tl,
+      withProgress: true,
+      barrierDismissible: false,
+      allowCancel: false,
+    );
+    final results = <({String name, String? error})>[];
+    try {
+      for (final source in sources) {
+        String? error;
+        try {
+          await ComicSourcePage._updateSource(
+            source.key,
+            showLoading: false,
+            minimumVersion: source.target,
+          );
+        } catch (exception) {
+          error = exception.toString();
         }
-      } catch (e) {
-        if (mounted) context.showMessage(message: e.toString());
-      } finally {
-        loadingController.close();
+        results.add((name: source.name, error: error));
+        loadingController.setProgress(results.length / sources.length);
       }
+    } finally {
+      loadingController.close();
     }
+    if (!mounted) return;
+    if (results.any((result) => result.error == null)) App.forceRebuild();
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Source update results'.tl),
+        scrollable: true,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final result in results)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  result.error == null
+                      ? Icons.check_circle_outline
+                      : Icons.error_outline,
+                ),
+                title: Text(result.name),
+                subtitle: Text(
+                  result.error == null
+                      ? 'Up to date'.tl
+                      : 'Update failed: @error'.tlParams({
+                          'error': result.error!,
+                        }),
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('OK'.tl),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final updates = ComicSourceManager().availableUpdates;
     return FilledButton.tonalIcon(
       icon: isLoading
           ? SizedBox(
@@ -753,8 +852,23 @@ class _CheckUpdatesButtonState extends State<_CheckUpdatesButton> {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           : Icon(Icons.update),
-      label: Text("Check updates".tl),
-      onPressed: isLoading ? null : check,
+      label: Text(
+        updates.isEmpty
+            ? 'Check updates'.tl
+            : 'Source updates (@count)'.tlParams({'count': updates.length}),
+      ),
+      onPressed: isLoading
+          ? null
+          : updates.isEmpty
+          ? check
+          : () async {
+              setState(() => isLoading = true);
+              try {
+                await showUpdateDialog(updates);
+              } finally {
+                if (mounted) setState(() => isLoading = false);
+              }
+            },
     );
   }
 }

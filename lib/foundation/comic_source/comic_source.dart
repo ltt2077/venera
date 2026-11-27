@@ -96,7 +96,11 @@ class ComicSourceManager with ChangeNotifier, Init {
     final index = _sources.indexWhere((item) => item.key == source.key);
     if (index == -1) throw StateError('Source was removed during update');
     _sources[index] = source;
-    _availableUpdates.remove(source.key);
+    final pendingVersion = _availableUpdates[source.key];
+    if (pendingVersion != null &&
+        !isNewerSourceVersion(pendingVersion, source.version)) {
+      _availableUpdates.remove(source.key);
+    }
     notifyListeners();
   }
 
