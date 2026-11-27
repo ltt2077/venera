@@ -1,0 +1,69 @@
+name: Publish verified offline-signed Venera 1.7.10
+on:
+  push:
+    branches: [codex/1.7.10-android-packaging]
+    paths: ['.github/workflows/android-offline-publish.yml']
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: venera-1.7.10-final-publish
+  cancel-in-progress: false
+env:
+  APP_SOURCE: '9e85f75f50c5538dc51eaa40cdb4a534cfe476bc'
+  COMPILE_COMMIT: '3e00f313584b1cc503dfe7849967bc36e0a99cdc'
+  DESKTOP_RUN: '45990348910'
+  ANDROID_RUN: '45990990537'
+jobs:
+  publish:
+    if: github.repository == 'ltt2077/venera'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: signing-delivery
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.APP_SOURCE }}
+          path: app
+      - name: Verify build runs and download their packages
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          repo = os.environ['GITHUB_REPOSITORY']
+          plans = [
+              ('DESKTOP_RUN', 'APP_SOURCE', ('test', 'ios', 'macos', 'windows')),
+              ('ANDROID_RUN', 'COMPILE_COMMIT', ('compile',)),
+          ]
+          for run, commit, required in plans:
+              base = f"repos/{repo}/actions/runs/{os.environ[run]}"
+              info = json.loads(subprocess.check_output(['gh', 'api', base], text=True))
+              assert info['head_sha'] == os.environ[commit], run + ' source differs'
+              jobs = json.loads(subprocess.check_output(['gh', 'api', base + '/jobs?filter=latest'], text=True))['jobs']
+              finished = {job['name'] for job in jobs if job['conclusion'] == 'success'}
+              assert set(required) <= finished, f'{run} jobs incomplete: {set(required) - finished}'
+          PY
+          for platform in ios macos windows; do
+            gh run download "$DESKTOP_RUN" --repo "$GITHUB_REPOSITORY" --name "venera-platform-$platform" --dir dist
+          done
+          gh run download "$ANDROID_RUN" --repo "$GITHUB_REPOSITORY" --name compile-only-apks --dir compile-only
+      - name: Reconstruct and verify the Android packages signed with the original certificate
+        working-directory: app
+        run: |
+          python3 ../signing-delivery/release-delivery/apply_signatures.py ../signing-delivery/release-delivery compile-only build/app/outputs/apk/release
+          GITHUB_SHA="$APP_SOURCE" python3 tool/verify_android_release.py tool/desktop_release.json
+          GITHUB_SHA="$APP_SOURCE" python3 tool/publish_platform_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: venera-1.7.10-verified-four-platforms
+          path: app/dist/
+          if-no-files-found: error
+      - name: Publish all four platforms on one release
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          GITHUB_SHA="$APP_SOURCE" GITHUB_REF_NAME=codex/v1.7.10-maintenance python3 tool/publish_platform_release.py --publish
